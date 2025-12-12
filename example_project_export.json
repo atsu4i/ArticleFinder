@@ -1,0 +1,52 @@
+{
+  "metadata": {
+    "name": "糖尿病治療研究",
+    "safe_name": "糖尿病治療研究",
+    "created_at": "2025-12-10T15:30:00.000000",
+    "updated_at": "2025-12-10T16:45:30.000000",
+    "research_theme": "2型糖尿病患者におけるインスリン抵抗性と心血管疾患リスクの関連について、特にメトホルミンやGLP-1受容体作動薬などの治療薬の効果を含めた研究を探しています。",
+    "settings": {
+      "max_depth": 2,
+      "max_articles": 100,
+      "relevance_threshold": 60,
+      "year_from": 2020
+    },
+    "stats": {
+      "total_articles": 85,
+      "total_evaluated": 85,
+      "total_relevant": 42
+    }
+  },
+  "articles": [
+    {
+      "pmid": "12345678",
+      "title": "Type 2 diabetes and cardiovascular risk: A comprehensive review",
+      "authors": "Smith J, Johnson A, Williams B, et al.",
+      "journal": "New England Journal of Medicine",
+      "pub_date": "2023 Mar 15",
+      "pub_year": 2023,
+      "abstract": "Background: Type 2 diabetes mellitus is a major risk factor for cardiovascular disease...",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+      "relevance_score": 85,
+      "is_relevant": true,
+      "relevance_reasoning": "この論文は2型糖尿病と心血管疾患リスクの関連について包括的に論じており、研究テーマに直接関連しています。",
+      "depth": 0,
+      "evaluated_at": "2025-12-10T16:30:45.123456"
+    },
+    {
+      "pmid": "23456789",
+      "title": "SGLT2 inhibitors in type 2 diabetes: cardiovascular outcomes",
+      "authors": "Brown C, Davis E, Miller F, et al.",
+      "journal": "The Lancet",
+      "pub_date": "2023 Jun 20",
+      "pub_year": 2023,
+      "abstract": "Objective: To evaluate the cardiovascular outcomes of SGLT2 inhibitors...",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/23456789/",
+      "relevance_score": 92,
+      "is_relevant": true,
+      "relevance_reasoning": "SGLT2阻害薬と心血管アウトカムに関する臨床試験結果であり、研究テーマに非常に関連性が高い。",
+      "depth": 1,
+      "evaluated_at": "2025-12-10T16:31:20.456789"
+    }
+  ]
+}

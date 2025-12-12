@@ -1,0 +1,56 @@
+{
+  "articles": [
+    {
+      "pmid": "12345678",
+      "title": "Type 2 diabetes and cardiovascular risk: A comprehensive review",
+      "authors": "Smith J, Johnson A, Williams B, et al.",
+      "journal": "New England Journal of Medicine",
+      "pub_date": "2023 Mar 15",
+      "pub_year": 2023,
+      "abstract": "Background: Type 2 diabetes mellitus is a major risk factor for cardiovascular disease. This review examines...",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+      "relevance_score": 85,
+      "is_relevant": true,
+      "relevance_reasoning": "この論文は2型糖尿病と心血管疾患リスクの関連について包括的に論じており、研究テーマに直接関連しています。特にインスリン抵抗性と心血管イベントの関係について詳細な分析が含まれています。",
+      "depth": 0,
+      "evaluated_at": "2025-12-10T16:30:45.123456"
+    },
+    {
+      "pmid": "23456789",
+      "title": "SGLT2 inhibitors in type 2 diabetes: cardiovascular outcomes",
+      "authors": "Brown C, Davis E, Miller F, et al.",
+      "journal": "The Lancet",
+      "pub_date": "2023 Jun 20",
+      "pub_year": 2023,
+      "abstract": "Objective: To evaluate the cardiovascular outcomes of SGLT2 inhibitors in patients with type 2 diabetes...",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/23456789/",
+      "relevance_score": 92,
+      "is_relevant": true,
+      "relevance_reasoning": "SGLT2阻害薬と心血管アウトカムに関する臨床試験結果であり、研究テーマに非常に関連性が高い。糖尿病治療薬の心血管保護効果について具体的なデータを提供しています。",
+      "depth": 1,
+      "evaluated_at": "2025-12-10T16:31:20.456789"
+    },
+    {
+      "pmid": "34567890",
+      "title": "Genetic factors in type 1 diabetes susceptibility",
+      "authors": "Wilson G, Taylor H, Anderson I, et al.",
+      "journal": "Nature Genetics",
+      "pub_date": "2023 Jan 10",
+      "pub_year": 2023,
+      "abstract": "We investigated genetic variants associated with type 1 diabetes susceptibility...",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/34567890/",
+      "relevance_score": 25,
+      "is_relevant": false,
+      "relevance_reasoning": "この論文は1型糖尿病の遺伝的要因に焦点を当てており、2型糖尿病の心血管リスクに関する研究テーマとは関連性が低い。",
+      "depth": 2,
+      "evaluated_at": "2025-12-10T16:32:15.789012"
+    }
+  ],
+  "stats": {
+    "total_found": 150,
+    "total_evaluated": 80,
+    "total_skipped": 70,
+    "total_relevant": 45,
+    "depth_reached": 2
+  }
+}
