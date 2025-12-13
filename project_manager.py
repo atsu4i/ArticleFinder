@@ -241,6 +241,38 @@ class Project:
         if not pmid:
             raise ValueError("Article must have 'pmid' field")
 
+        # search_session_idを配列として管理
+        session_id = article.get("search_session_id")
+
+        # 既存論文かどうかをチェック
+        if pmid in self.articles:
+            # 既存論文の場合、セッションIDを配列に追加
+            existing_article = self.articles[pmid]
+            existing_sessions = existing_article.get("search_session_ids", [])
+
+            # 文字列形式の古いデータを配列に変換
+            if isinstance(existing_sessions, str):
+                existing_sessions = [existing_sessions]
+            elif not isinstance(existing_sessions, list):
+                existing_sessions = []
+
+            # 新しいセッションIDを追加（重複チェック）
+            if session_id and session_id not in existing_sessions:
+                existing_sessions.append(session_id)
+
+            # 論文情報を更新（search_session_idsのみ既存のものを保持）
+            article["search_session_ids"] = existing_sessions
+        else:
+            # 新規論文の場合、配列として初期化
+            if session_id:
+                article["search_session_ids"] = [session_id]
+            else:
+                article["search_session_ids"] = []
+
+        # 古いフィールド名を削除（互換性のため）
+        if "search_session_id" in article:
+            del article["search_session_id"]
+
         # 評価日時を追加
         article["evaluated_at"] = datetime.now().isoformat()
 

@@ -731,9 +731,12 @@ def display_project_articles(
     # 論文リストをフィルタ
     filtered_articles = articles
 
-    # セッションフィルタ
+    # セッションフィルタ（配列対応）
     if selected_session_id:
-        filtered_articles = [a for a in filtered_articles if a.get("search_session_id") == selected_session_id]
+        filtered_articles = [
+            a for a in filtered_articles
+            if selected_session_id in a.get("search_session_ids", [])
+        ]
 
     if show_not_in_notion:
         filtered_articles = [a for a in filtered_articles if not a.get("in_notion", False)]
