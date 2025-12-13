@@ -15,15 +15,33 @@ class ArticleFinder:
     def __init__(
         self,
         gemini_api_key: Optional[str] = None,
-        gemini_model: Optional[str] = None
+        gemini_model: Optional[str] = None,
+        notion_api_key: Optional[str] = None,
+        notion_database_id: Optional[str] = None
     ):
         """
         Args:
             gemini_api_key: Gemini API Key（省略時は環境変数から取得）
             gemini_model: 使用するGeminiモデル名（省略時はデフォルトモデル）
+            notion_api_key: Notion API Key（省略時は環境変数から取得、未設定の場合Notion連携は無効）
+            notion_database_id: Notion Database ID（省略時は環境変数から取得）
         """
         self.pubmed = PubMedAPI()
         self.evaluator = GeminiEvaluator(gemini_api_key, gemini_model)
+
+        # Notion APIを初期化（オプション）
+        self.notion = None
+        if notion_api_key and notion_database_id:
+            try:
+                # 遅延import: Notion連携を使う場合のみimport
+                from notion_api import NotionAPI
+                self.notion = NotionAPI(notion_api_key, notion_database_id)
+            except ImportError:
+                print("Notion API is not available. Install notion-client: pip install notion-client")
+                self.notion = None
+            except Exception as e:
+                print(f"Notion API initialization failed: {e}")
+                self.notion = None
 
     def find_articles(
         self,
@@ -195,6 +213,22 @@ class ArticleFinder:
 
         # 関連性スコアでソート
         articles_list.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
+
+        # Notion連携（オプション）
+        if self.notion:
+            self._notify_progress(progress_callback, "Notionデータベースをチェック中...")
+            try:
+                articles_list = self.notion.batch_check_articles(
+                    articles_list,
+                    update_score=True,
+                    callback=lambda current, total, pmid: self._notify_progress(
+                        progress_callback,
+                        f"Notionチェック中 {current}/{total} (PMID: {pmid})"
+                    )
+                )
+                self._notify_progress(progress_callback, "Notionチェック完了")
+            except Exception as e:
+                self._notify_progress(progress_callback, f"Notionチェックエラー: {e}")
 
         # プロジェクトを保存
         if project:

@@ -6,6 +6,7 @@ import streamlit as st
 import json
 import os
 from datetime import datetime
+from typing import Optional
 from article_finder import ArticleFinder
 from project_manager import ProjectManager
 from gemini_evaluator import GeminiEvaluator
@@ -160,6 +161,37 @@ def main():
 
         st.divider()
 
+        # Notion API設定（オプション）
+        st.subheader("Notion連携（オプション）")
+
+        use_notion = st.checkbox(
+            "Notion連携を有効にする",
+            value=False,
+            help="Notionデータベースと連携して、論文の登録状態をチェック・スコアを更新"
+        )
+
+        notion_api_key = None
+        notion_database_id = None
+
+        if use_notion:
+            notion_api_key = st.text_input(
+                "Notion API Key",
+                type="password",
+                value=os.getenv("NOTION_API_KEY", ""),
+                help="https://www.notion.so/my-integrations から取得"
+            )
+
+            notion_database_id = st.text_input(
+                "Notion Database ID",
+                value=os.getenv("NOTION_DATABASE_ID", ""),
+                help="データベースURLから取得: https://www.notion.so/{workspace}/{database_id}?v=..."
+            )
+
+            if not notion_api_key or not notion_database_id:
+                st.warning("Notion API KeyとDatabase IDの両方を入力してください")
+
+        st.divider()
+
         # プロジェクト選択
         st.subheader("📁 プロジェクト")
 
@@ -223,101 +255,129 @@ def main():
         # 探索設定
         st.subheader("探索設定")
 
+        # セッション状態の初期化
+        if 'config_max_depth_slider' not in st.session_state:
+            st.session_state.config_max_depth_slider = 2
+        if 'config_max_depth_input' not in st.session_state:
+            st.session_state.config_max_depth_input = 2
+        if 'config_max_articles_slider' not in st.session_state:
+            st.session_state.config_max_articles_slider = 100
+        if 'config_max_articles_input' not in st.session_state:
+            st.session_state.config_max_articles_input = 100
+        if 'config_threshold_slider' not in st.session_state:
+            st.session_state.config_threshold_slider = 60
+        if 'config_threshold_input' not in st.session_state:
+            st.session_state.config_threshold_input = 60
+
         # 探索の深さ
         col_slider, col_input = st.columns([3, 1])
         with col_slider:
-            max_depth_slider = st.slider(
+            st.slider(
                 "探索の深さ",
                 min_value=1,
                 max_value=5,
-                value=2,
                 help="何階層まで関連論文を辿るか",
-                key="depth_slider"
+                key="config_max_depth_slider",
+                on_change=lambda: setattr(st.session_state, 'config_max_depth_input', st.session_state.config_max_depth_slider)
             )
         with col_input:
-            max_depth = st.number_input(
+            st.number_input(
                 "深さ",
                 min_value=1,
                 max_value=5,
-                value=max_depth_slider,
                 step=1,
-                key="depth_input",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key="config_max_depth_input",
+                on_change=lambda: setattr(st.session_state, 'config_max_depth_slider', st.session_state.config_max_depth_input)
             )
+
+        max_depth = st.session_state.config_max_depth_slider
 
         # 最大論文数
         col_slider, col_input = st.columns([3, 1])
         with col_slider:
-            max_articles_slider = st.slider(
+            st.slider(
                 "最大論文数",
                 min_value=10,
                 max_value=1000,
-                value=100,
                 step=5,
                 help="収集する論文の最大数",
-                key="articles_slider"
+                key="config_max_articles_slider",
+                on_change=lambda: setattr(st.session_state, 'config_max_articles_input', st.session_state.config_max_articles_slider)
             )
         with col_input:
-            max_articles = st.number_input(
+            st.number_input(
                 "論文数",
                 min_value=10,
                 max_value=1000,
-                value=max_articles_slider,
                 step=5,
-                key="articles_input",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key="config_max_articles_input",
+                on_change=lambda: setattr(st.session_state, 'config_max_articles_slider', st.session_state.config_max_articles_input)
             )
+
+        max_articles = st.session_state.config_max_articles_slider
 
         # 関連性スコア閾値
         col_slider, col_input = st.columns([3, 1])
         with col_slider:
-            relevance_threshold_slider = st.slider(
+            st.slider(
                 "関連性スコア閾値",
                 min_value=0,
                 max_value=100,
-                value=60,
                 step=5,
                 help="この値以上のスコアの論文のみ次階層を探索",
-                key="threshold_slider"
+                key="config_threshold_slider",
+                on_change=lambda: setattr(st.session_state, 'config_threshold_input', st.session_state.config_threshold_slider)
             )
         with col_input:
-            relevance_threshold = st.number_input(
+            st.number_input(
                 "閾値",
                 min_value=0,
                 max_value=100,
-                value=relevance_threshold_slider,
                 step=5,
-                key="threshold_input",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key="config_threshold_input",
+                on_change=lambda: setattr(st.session_state, 'config_threshold_slider', st.session_state.config_threshold_input)
             )
+
+        relevance_threshold = st.session_state.config_threshold_slider
 
         st.divider()
 
         # 関連論文取得設定
         st.subheader("関連論文取得設定")
 
+        # セッション状態の初期化
+        if 'config_max_related_slider' not in st.session_state:
+            st.session_state.config_max_related_slider = 20
+        if 'config_max_related_input' not in st.session_state:
+            st.session_state.config_max_related_input = 20
+
         # 1論文あたりの最大関連論文数
         col_slider, col_input = st.columns([3, 1])
         with col_slider:
-            max_related_slider = st.slider(
+            st.slider(
                 "1論文あたりの最大関連論文数",
                 min_value=5,
                 max_value=100,
-                value=20,
                 step=5,
                 help="各論文から取得するSimilar articles / Cited byの最大数",
-                key="max_related_slider"
+                key="config_max_related_slider",
+                on_change=lambda: setattr(st.session_state, 'config_max_related_input', st.session_state.config_max_related_slider)
             )
         with col_input:
-            max_related_per_article = st.number_input(
+            st.number_input(
                 "最大数",
                 min_value=5,
                 max_value=100,
-                value=max_related_slider,
                 step=5,
-                key="max_related_input",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key="config_max_related_input",
+                on_change=lambda: setattr(st.session_state, 'config_max_related_slider', st.session_state.config_max_related_input)
             )
+
+        max_related_per_article = st.session_state.config_max_related_slider
 
         st.divider()
 
@@ -416,7 +476,9 @@ def main():
             include_similar=include_similar,
             include_cited_by=include_cited_by,
             project=project,
-            max_related_per_article=max_related_per_article
+            max_related_per_article=max_related_per_article,
+            notion_api_key=notion_api_key if use_notion else None,
+            notion_database_id=notion_database_id if use_notion else None
         )
 
     # 検索結果がsession_stateにある場合は表示
@@ -432,22 +494,140 @@ def display_project_articles(project):
     articles.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
 
     # 統計情報
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns([1, 2])
+
     with col1:
         st.metric("総論文数", len(articles))
+
+        # Notion登録済み数（チェック済みの場合のみ）
+        if any('in_notion' in a for a in articles):
+            notion_count = len([a for a in articles if a.get("in_notion", False)])
+            st.metric("Notion登録済み", notion_count)
+
     with col2:
-        relevant_count = len([a for a in articles if a.get("is_relevant", False)])
-        st.metric("関連論文数", relevant_count)
-    with col3:
-        avg_score = sum(a.get("relevance_score", 0) for a in articles) / len(articles) if articles else 0
-        st.metric("平均スコア", f"{avg_score:.1f}")
+        # スコア分布を表示
+        st.markdown("**📊 スコア分布**")
+
+        # スコア範囲ごとに集計
+        score_ranges = {
+            "80-100点\n(高)": 0,
+            "60-79点\n(中)": 0,
+            "40-59点\n(低)": 0,
+            "0-39点\n(非関連)": 0
+        }
+
+        for article in articles:
+            score = article.get("relevance_score", 0)
+            if score >= 80:
+                score_ranges["80-100点\n(高)"] += 1
+            elif score >= 60:
+                score_ranges["60-79点\n(中)"] += 1
+            elif score >= 40:
+                score_ranges["40-59点\n(低)"] += 1
+            else:
+                score_ranges["0-39点\n(非関連)"] += 1
+
+        # 棒グラフで表示
+        import pandas as pd
+        df = pd.DataFrame({
+            "件数": list(score_ranges.values())
+        }, index=list(score_ranges.keys()))
+
+        st.bar_chart(df, horizontal=True, height=200)
+
+    st.divider()
+
+    # Notionチェック機能
+    st.subheader("🔗 Notion連携")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        notion_api_key_check = st.text_input(
+            "Notion API Key",
+            type="password",
+            value=os.getenv("NOTION_API_KEY", ""),
+            help="https://www.notion.so/my-integrations から取得",
+            key="project_notion_api_key"
+        )
+
+        notion_database_id_check = st.text_input(
+            "Notion Database ID",
+            value=os.getenv("NOTION_DATABASE_ID", ""),
+            help="データベースURLから取得",
+            key="project_notion_database_id"
+        )
+
+    with col2:
+        st.write("")  # スペーサー
+        st.write("")  # スペーサー
+
+        if st.button(
+            "🔍 Notionデータベースをチェック",
+            type="primary",
+            use_container_width=True,
+            disabled=not (notion_api_key_check and notion_database_id_check),
+            help="プロジェクト内の全論文がNotionに登録されているかチェックし、スコアを更新"
+        ):
+            if not notion_api_key_check or not notion_database_id_check:
+                st.error("Notion API KeyとDatabase IDを両方入力してください")
+            else:
+                # Notionチェックを実行
+                try:
+                    # NotionAPIを初期化
+                    from notion_api import NotionAPI
+                    notion = NotionAPI(notion_api_key_check, notion_database_id_check)
+
+                    # プログレスバーを表示
+                    progress_placeholder = st.empty()
+                    status_placeholder = st.empty()
+
+                    def notion_progress(current, total, pmid):
+                        progress_placeholder.progress(current / total)
+                        status_placeholder.info(f"Notionチェック中 {current}/{total} (PMID: {pmid})")
+
+                    status_placeholder.info("Notionデータベースをチェック中...")
+
+                    # 全論文をチェック
+                    updated_articles = notion.batch_check_articles(
+                        articles,
+                        update_score=True,
+                        callback=notion_progress
+                    )
+
+                    # プロジェクトを更新
+                    for article in updated_articles:
+                        project.add_article(article)
+
+                    project.save()
+
+                    # 統計情報
+                    notion_registered = len([a for a in updated_articles if a.get("in_notion", False)])
+                    score_updated = len([a for a in updated_articles if a.get("notion_score_updated", False)])
+
+                    progress_placeholder.empty()
+                    status_placeholder.success(
+                        f"✅ Notionチェック完了！\n\n"
+                        f"- 登録済み: {notion_registered}件\n"
+                        f"- スコア更新: {score_updated}件"
+                    )
+
+                    # 画面を再読み込み
+                    st.rerun()
+
+                except ImportError:
+                    st.error("notion-clientがインストールされていません。`pip install notion-client`を実行してください")
+                except Exception as e:
+                    st.error(f"Notionチェック中にエラーが発生しました: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
 
     st.divider()
 
     # フィルタ
     st.subheader("🔍 論文フィルタ")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         show_only_relevant = st.checkbox(
@@ -457,32 +637,51 @@ def display_project_articles(project):
         )
 
     with col2:
+        show_not_in_notion = st.checkbox(
+            "Notion未登録のみ表示",
+            value=False,
+            key="project_filter_not_in_notion",
+            help="Notionデータベースに未登録の論文のみ表示"
+        )
+
+    with col3:
+        # セッション状態の初期化
+        if 'filter_project_slider' not in st.session_state:
+            st.session_state.filter_project_slider = 0
+        if 'filter_project_input' not in st.session_state:
+            st.session_state.filter_project_input = 0
+
         col_slider, col_input = st.columns([3, 1])
         with col_slider:
-            min_score_slider = st.slider(
+            st.slider(
                 "最小スコア",
                 min_value=0,
                 max_value=100,
-                value=0,
                 step=5,
-                key="project_filter_slider"
+                key="filter_project_slider",
+                on_change=lambda: setattr(st.session_state, 'filter_project_input', st.session_state.filter_project_slider)
             )
         with col_input:
-            min_score_filter = st.number_input(
+            st.number_input(
                 "スコア",
                 min_value=0,
                 max_value=100,
-                value=min_score_slider,
                 step=5,
-                key="project_filter_input",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key="filter_project_input",
+                on_change=lambda: setattr(st.session_state, 'filter_project_slider', st.session_state.filter_project_input)
             )
+
+        min_score_filter = st.session_state.filter_project_slider
 
     # 論文リストをフィルタ
     filtered_articles = articles
 
     if show_only_relevant:
         filtered_articles = [a for a in filtered_articles if a.get("is_relevant", False)]
+
+    if show_not_in_notion:
+        filtered_articles = [a for a in filtered_articles if not a.get("in_notion", False)]
 
     filtered_articles = [
         a for a in filtered_articles
@@ -538,14 +737,20 @@ def display_project_articles(project):
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                st.markdown(f"**PMID:** [{article.get('pmid', 'N/A')}]({article.get('url', '#')})")
+                pmid = article.get('pmid', 'N/A')
+                st.markdown(f"**PMID:** [{pmid}]({article.get('url', '#')})")
+
+                # 京都大学図書館Article Linkerへのリンク
+                if pmid != 'N/A':
+                    ku_linker_url = f"https://tt2mx4dc7s.search.serialssolutions.com/?sid=Entrez:PubMed&id=pmid:{pmid}"
+                    st.markdown(f"**📚 京大図書館:** [Article Linker]({ku_linker_url})")
+
                 st.markdown(f"**著者:** {article.get('authors', 'N/A')}")
                 st.markdown(f"**ジャーナル:** {article.get('journal', 'N/A')}")
                 st.markdown(f"**出版年:** {article.get('pub_year', 'N/A')}")
 
             with col2:
                 score = article.get('relevance_score', 0)
-                is_relevant = article.get('is_relevant', False)
 
                 # スコアバッジ
                 if score >= 80:
@@ -558,8 +763,22 @@ def display_project_articles(project):
                     color = "red"
 
                 st.markdown(f"**関連性スコア:** :{color}[{score}]")
-                st.markdown(f"**関連あり:** {'✅ はい' if is_relevant else '❌ いいえ'}")
-                st.markdown(f"**探索階層:** {article.get('depth', 0)}")
+
+                # Notion登録状態を表示（Notion連携を使った場合のみ）
+                if 'in_notion' in article:
+                    if article.get('in_notion'):
+                        st.markdown(f"**Notion:** 📝 登録済み")
+                        # Notionページへのリンク
+                        notion_page_id = article.get('notion_page_id')
+                        if notion_page_id:
+                            # ページIDのハイフンを削除してURLを構築
+                            clean_page_id = notion_page_id.replace('-', '')
+                            notion_url = f"https://www.notion.so/{clean_page_id}"
+                            st.markdown(f"　　　　 [📄 Notionページを開く]({notion_url})")
+                        if article.get('notion_score_updated'):
+                            st.markdown("　　　　 ✅ スコア更新済み")
+                    else:
+                        st.markdown(f"**Notion:** ❌ 未登録")
 
                 # ソース情報を表示
                 source_pmid = article.get('source_pmid')
@@ -574,7 +793,7 @@ def display_project_articles(project):
             if article.get('abstract'):
                 with st.container():
                     st.markdown("**アブストラクト:**")
-                    st.text(article['abstract'][:500] + "..." if len(article['abstract']) > 500 else article['abstract'])
+                    st.text(article['abstract'])
 
             # 評価理由
             if article.get('relevance_reasoning'):
@@ -613,7 +832,9 @@ def run_search(
     include_similar: bool,
     include_cited_by: bool,
     project,
-    max_related_per_article: int = 20
+    max_related_per_article: int = 20,
+    notion_api_key: Optional[str] = None,
+    notion_database_id: Optional[str] = None
 ):
     """論文検索を実行"""
 
@@ -636,7 +857,12 @@ def run_search(
 
     try:
         # ArticleFinderを初期化
-        finder = ArticleFinder(gemini_api_key=api_key, gemini_model=gemini_model)
+        finder = ArticleFinder(
+            gemini_api_key=api_key,
+            gemini_model=gemini_model,
+            notion_api_key=notion_api_key,
+            notion_database_id=notion_database_id
+        )
 
         # 停止ボタンを表示
         if stop_button_placeholder.button("⏸️ 評価を停止", type="secondary", use_container_width=True):
@@ -724,7 +950,7 @@ def display_results(result: dict, project=None):
     # フィルタ
     st.subheader("🔍 結果フィルタ")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         show_only_relevant = st.checkbox(
@@ -734,32 +960,51 @@ def display_results(result: dict, project=None):
         )
 
     with col2:
+        show_not_in_notion = st.checkbox(
+            "Notion未登録のみ表示",
+            value=False,
+            key="results_filter_not_in_notion",
+            help="Notionデータベースに未登録の論文のみ表示"
+        )
+
+    with col3:
+        # セッション状態の初期化
+        if 'filter_results_slider' not in st.session_state:
+            st.session_state.filter_results_slider = 0
+        if 'filter_results_input' not in st.session_state:
+            st.session_state.filter_results_input = 0
+
         col_slider, col_input = st.columns([3, 1])
         with col_slider:
-            min_score_slider = st.slider(
+            st.slider(
                 "最小スコア",
                 min_value=0,
                 max_value=100,
-                value=0,
                 step=5,
-                key="results_filter_slider"
+                key="filter_results_slider",
+                on_change=lambda: setattr(st.session_state, 'filter_results_input', st.session_state.filter_results_slider)
             )
         with col_input:
-            min_score_filter = st.number_input(
+            st.number_input(
                 "スコア",
                 min_value=0,
                 max_value=100,
-                value=min_score_slider,
                 step=5,
-                key="results_filter_input",
-                label_visibility="collapsed"
+                label_visibility="collapsed",
+                key="filter_results_input",
+                on_change=lambda: setattr(st.session_state, 'filter_results_slider', st.session_state.filter_results_input)
             )
+
+        min_score_filter = st.session_state.filter_results_slider
 
     # 論文リストをフィルタ
     filtered_articles = articles
 
     if show_only_relevant:
         filtered_articles = [a for a in filtered_articles if a.get("is_relevant", False)]
+
+    if show_not_in_notion:
+        filtered_articles = [a for a in filtered_articles if not a.get("in_notion", False)]
 
     filtered_articles = [
         a for a in filtered_articles
@@ -780,7 +1025,14 @@ def display_results(result: dict, project=None):
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                st.markdown(f"**PMID:** [{article.get('pmid', 'N/A')}]({article.get('url', '#')})")
+                pmid = article.get('pmid', 'N/A')
+                st.markdown(f"**PMID:** [{pmid}]({article.get('url', '#')})")
+
+                # 京都大学図書館Article Linkerへのリンク
+                if pmid != 'N/A':
+                    ku_linker_url = f"https://tt2mx4dc7s.search.serialssolutions.com/?sid=Entrez:PubMed&id=pmid:{pmid}"
+                    st.markdown(f"**📚 京大図書館:** [Article Linker]({ku_linker_url})")
+
                 st.markdown(f"**著者:** {article.get('authors', 'N/A')}")
                 st.markdown(f"**ジャーナル:** {article.get('journal', 'N/A')}")
                 st.markdown(f"**出版年:** {article.get('pub_year', 'N/A')}")
@@ -803,6 +1055,22 @@ def display_results(result: dict, project=None):
                 st.markdown(f"**関連あり:** {'✅ はい' if is_relevant else '❌ いいえ'}")
                 st.markdown(f"**探索階層:** {article.get('depth', 0)}")
 
+                # Notion登録状態を表示（Notion連携を使った場合のみ）
+                if 'in_notion' in article:
+                    if article.get('in_notion'):
+                        st.markdown(f"**Notion:** 📝 登録済み")
+                        # Notionページへのリンク
+                        notion_page_id = article.get('notion_page_id')
+                        if notion_page_id:
+                            # ページIDのハイフンを削除してURLを構築
+                            clean_page_id = notion_page_id.replace('-', '')
+                            notion_url = f"https://www.notion.so/{clean_page_id}"
+                            st.markdown(f"　　　　 [📄 Notionページを開く]({notion_url})")
+                        if article.get('notion_score_updated'):
+                            st.markdown("　　　　 ✅ スコア更新済み")
+                    else:
+                        st.markdown(f"**Notion:** ❌ 未登録")
+
                 # ソース情報を表示
                 source_pmid = article.get('source_pmid')
                 source_type = article.get('source_type', '')
@@ -816,7 +1084,7 @@ def display_results(result: dict, project=None):
             if article.get('abstract'):
                 with st.container():
                     st.markdown("**アブストラクト:**")
-                    st.text(article['abstract'][:500] + "..." if len(article['abstract']) > 500 else article['abstract'])
+                    st.text(article['abstract'])
 
             # 評価理由
             if article.get('relevance_reasoning'):
