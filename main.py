@@ -429,7 +429,21 @@ def main():
     # 既存プロジェクトの論文一覧を表示
     if project and project.metadata['stats']['total_articles'] > 0:
         with st.expander(f"📚 プロジェクト内の論文一覧 ({project.metadata['stats']['total_articles']}件)", expanded=False):
-            display_project_articles(project)
+            display_project_articles(
+                project=project,
+                api_key=api_key,
+                gemini_model=gemini_model,
+                research_theme=research_theme,
+                max_depth=max_depth,
+                max_articles=max_articles,
+                relevance_threshold=relevance_threshold,
+                year_from=year_from,
+                include_similar=include_similar,
+                include_cited_by=include_cited_by,
+                max_related_per_article=max_related_per_article,
+                notion_api_key=notion_api_key if use_notion else None,
+                notion_database_id=notion_database_id if use_notion else None
+            )
 
     # 実行ボタン
     st.divider()
@@ -486,7 +500,21 @@ def main():
         display_results(st.session_state['search_result'], st.session_state['current_project'])
 
 
-def display_project_articles(project):
+def display_project_articles(
+    project,
+    api_key: str,
+    gemini_model: str,
+    research_theme: str,
+    max_depth: int,
+    max_articles: int,
+    relevance_threshold: int,
+    year_from: Optional[int],
+    include_similar: bool,
+    include_cited_by: bool,
+    max_related_per_article: int,
+    notion_api_key: Optional[str] = None,
+    notion_database_id: Optional[str] = None
+):
     """プロジェクト内の論文を表示"""
     articles = project.get_all_articles()
 
@@ -630,11 +658,37 @@ def display_project_articles(project):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        show_only_relevant = st.checkbox(
-            "関連論文のみ表示",
-            value=False,
-            key="project_filter_relevant"
+        # 検索セッションフィルタ
+        sessions = project.get_search_sessions()
+        session_options = ["すべて"]
+
+        if sessions:
+            # セッション選択肢を作成（日時と件数を表示）
+            for session in sessions:
+                timestamp = session.get("timestamp", "")
+                count = session.get("article_count", 0)
+                # タイムスタンプを読みやすい形式に変換
+                try:
+                    dt = datetime.fromisoformat(timestamp)
+                    display_time = dt.strftime("%Y-%m-%d %H:%M")
+                    session_label = f"{display_time} ({count}件)"
+                    session_options.append(session_label)
+                except:
+                    session_options.append(f"{timestamp} ({count}件)")
+
+        selected_session_display = st.selectbox(
+            "検索セッション",
+            options=session_options,
+            help="特定の検索で追加された論文のみ表示"
         )
+
+        # 選択されたセッションIDを取得
+        selected_session_id = None
+        if selected_session_display != "すべて" and sessions:
+            # session_optionsのインデックスから対応するセッションIDを取得
+            session_index = session_options.index(selected_session_display) - 1  # "すべて"の分を引く
+            if 0 <= session_index < len(sessions):
+                selected_session_id = sessions[session_index].get("session_id")
 
     with col2:
         show_not_in_notion = st.checkbox(
@@ -677,8 +731,9 @@ def display_project_articles(project):
     # 論文リストをフィルタ
     filtered_articles = articles
 
-    if show_only_relevant:
-        filtered_articles = [a for a in filtered_articles if a.get("is_relevant", False)]
+    # セッションフィルタ
+    if selected_session_id:
+        filtered_articles = [a for a in filtered_articles if a.get("search_session_id") == selected_session_id]
 
     if show_not_in_notion:
         filtered_articles = [a for a in filtered_articles if not a.get("in_notion", False)]
@@ -749,6 +804,16 @@ def display_project_articles(project):
                 st.markdown(f"**ジャーナル:** {article.get('journal', 'N/A')}")
                 st.markdown(f"**出版年:** {article.get('pub_year', 'N/A')}")
 
+                # 評価日時を表示
+                evaluated_at = article.get('evaluated_at')
+                if evaluated_at:
+                    try:
+                        dt = datetime.fromisoformat(evaluated_at)
+                        display_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        st.markdown(f"**評価日時:** {display_time}")
+                    except:
+                        st.markdown(f"**評価日時:** {evaluated_at}")
+
             with col2:
                 score = article.get('relevance_score', 0)
 
@@ -802,22 +867,52 @@ def display_project_articles(project):
 
             st.divider()
 
-            # 論文削除ボタン
+            # ボタン群
             pmid = article.get('pmid')
 
-            if st.button(
-                "🗑️ この論文を削除",
-                key=f"delete_{pmid}",
-                type="secondary",
-                use_container_width=True,
-                help="プロジェクトから削除します。次回検索時に再度発見されれば再評価されます。"
-            ):
-                if project.delete_article(pmid):
-                    project.save()
-                    st.success(f"論文 PMID {pmid} を削除しました")
-                    st.rerun()
-                else:
-                    st.error("削除に失敗しました")
+            col_btn1, col_btn2 = st.columns(2)
+
+            with col_btn1:
+                if st.button(
+                    "🔍 この論文を起点に検索",
+                    key=f"search_from_{pmid}",
+                    type="primary",
+                    use_container_width=True,
+                    help="この論文を起点として関連論文を探索します"
+                ):
+                    # この論文を起点に検索を開始
+                    st.info(f"PMID {pmid} を起点に検索を開始します...")
+                    run_search(
+                        api_key=api_key,
+                        gemini_model=gemini_model,
+                        start_pmid=pmid,
+                        research_theme=research_theme,
+                        max_depth=max_depth,
+                        max_articles=max_articles,
+                        relevance_threshold=relevance_threshold,
+                        year_from=year_from,
+                        include_similar=include_similar,
+                        include_cited_by=include_cited_by,
+                        project=project,
+                        max_related_per_article=max_related_per_article,
+                        notion_api_key=notion_api_key,
+                        notion_database_id=notion_database_id
+                    )
+
+            with col_btn2:
+                if st.button(
+                    "🗑️ この論文を削除",
+                    key=f"delete_{pmid}",
+                    type="secondary",
+                    use_container_width=True,
+                    help="プロジェクトから削除します。次回検索時に再度発見されれば再評価されます。"
+                ):
+                    if project.delete_article(pmid):
+                        project.save()
+                        st.success(f"論文 PMID {pmid} を削除しました")
+                        st.rerun()
+                    else:
+                        st.error("削除に失敗しました")
 
 
 def run_search(
@@ -896,12 +991,12 @@ def run_search(
         else:
             status_placeholder.success("✅ 探索が完了しました！")
 
-        # 結果を表示
-        display_results(result, project)
-
         # セッションに保存（ダウンロード用とフィルタ変更時の再表示用）
         st.session_state['search_result'] = result
         st.session_state['current_project'] = project
+
+        # 画面を再読み込みして結果を表示（重複キーエラーを防ぐ）
+        st.rerun()
 
     except Exception as e:
         st.error(f"エラーが発生しました: {str(e)}")
@@ -1036,6 +1131,16 @@ def display_results(result: dict, project=None):
                 st.markdown(f"**著者:** {article.get('authors', 'N/A')}")
                 st.markdown(f"**ジャーナル:** {article.get('journal', 'N/A')}")
                 st.markdown(f"**出版年:** {article.get('pub_year', 'N/A')}")
+
+                # 評価日時を表示
+                evaluated_at = article.get('evaluated_at')
+                if evaluated_at:
+                    try:
+                        dt = datetime.fromisoformat(evaluated_at)
+                        display_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        st.markdown(f"**評価日時:** {display_time}")
+                    except:
+                        st.markdown(f"**評価日時:** {evaluated_at}")
 
             with col2:
                 score = article.get('relevance_score', 0)

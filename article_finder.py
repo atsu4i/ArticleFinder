@@ -3,6 +3,7 @@
 PubMed APIとGemini評価を組み合わせて関連論文を探索
 """
 
+from datetime import datetime
 from typing import Dict, List, Callable, Optional, Set
 from pubmed_api import PubMedAPI
 from gemini_evaluator import GeminiEvaluator
@@ -111,8 +112,12 @@ class ArticleFinder:
             "total_evaluated": 0,
             "total_relevant": 0,
             "total_skipped": 0,
-            "depth_reached": 0
+            "depth_reached": 0,
+            "session_article_count": 0  # このセッションで追加された論文数
         }
+
+        # 検索セッションIDを生成（このセッションで追加される論文を識別）
+        session_id = datetime.now().isoformat()
 
         # 起点論文を処理
         self._notify_progress(progress_callback, f"起点論文を処理中 (PMID: {start_pmid})")
@@ -140,26 +145,46 @@ class ArticleFinder:
 
             # 起点論文を評価
             self._notify_progress(progress_callback, f"起点論文を評価中")
-            evaluation = self.evaluator.evaluate_relevance(
-                research_theme,
-                start_article,
-                relevance_threshold
-            )
 
-            start_article.update({
-                "relevance_score": evaluation["score"],
-                "is_relevant": evaluation["is_relevant"],
-                "relevance_reasoning": evaluation["reasoning"],
-                "depth": 0,
-                "source_pmid": None,
-                "source_type": "起点論文"
-            })
+            try:
+                evaluation = self.evaluator.evaluate_relevance(
+                    research_theme,
+                    start_article,
+                    relevance_threshold
+                )
 
-            stats["total_evaluated"] = 1
+                start_article.update({
+                    "relevance_score": evaluation["score"],
+                    "is_relevant": evaluation["is_relevant"],
+                    "relevance_reasoning": evaluation["reasoning"],
+                    "depth": 0,
+                    "source_pmid": None,
+                    "source_type": "起点論文",
+                    "search_session_id": session_id  # セッションIDを記録
+                })
 
-            # プロジェクトに保存
-            if project:
-                project.add_article(start_article)
+                stats["total_evaluated"] = 1
+                stats["session_article_count"] += 1  # セッションカウントを増やす
+
+                # プロジェクトに保存（リアルタイム保存）
+                if project:
+                    project.add_article(start_article)
+                    project.save()
+                    self._notify_progress(
+                        progress_callback,
+                        f"✅ 起点論文評価完了・保存済み (スコア: {evaluation['score']})"
+                    )
+
+            except Exception as e:
+                # 起点論文の評価エラーは致命的なのでエラーを投げる
+                if project:
+                    # エラーが発生しても、ここまでの進捗を保存
+                    project.save()
+                    self._notify_progress(
+                        progress_callback,
+                        f"💾 エラーが発生しましたが、進捗を保存しました"
+                    )
+                raise ValueError(f"起点論文の評価中にエラーが発生しました: {str(e)}")
 
         collected_articles[start_pmid] = start_article
         visited_pmids.add(start_pmid)
@@ -203,7 +228,8 @@ class ArticleFinder:
                 stats=stats,
                 project=project,
                 should_stop_callback=should_stop_callback,
-                max_related_per_article=max_related_per_article
+                max_related_per_article=max_related_per_article,
+                session_id=session_id  # セッションIDを渡す
             )
 
             current_layer = next_layer
@@ -227,11 +253,21 @@ class ArticleFinder:
                     )
                 )
                 self._notify_progress(progress_callback, "Notionチェック完了")
+
+                # Notion情報をプロジェクトに反映
+                if project:
+                    for article in articles_list:
+                        project.add_article(article)
+                    self._notify_progress(progress_callback, "Notion情報をプロジェクトに保存しました")
             except Exception as e:
                 self._notify_progress(progress_callback, f"Notionチェックエラー: {e}")
 
         # プロジェクトを保存
         if project:
+            # 検索セッション情報を追加
+            if stats["session_article_count"] > 0:
+                project.add_search_session(session_id, stats["session_article_count"])
+
             project.save()
             self._notify_progress(progress_callback, "プロジェクトを保存しました")
 
@@ -256,7 +292,8 @@ class ArticleFinder:
         stats: Dict,
         project: Optional[Project],
         should_stop_callback: Optional[Callable] = None,
-        max_related_per_article: int = 20
+        max_related_per_article: int = 20,
+        session_id: str = None
     ) -> List[str]:
         """
         1階層分の探索を実行
@@ -366,27 +403,62 @@ class ArticleFinder:
                         f"PMID {new_pmid} を評価中 ({len(collected_articles)}/{max_articles})"
                     )
 
-                    evaluation = self.evaluator.evaluate_relevance(
-                        research_theme,
-                        article,
-                        relevance_threshold
-                    )
+                    try:
+                        evaluation = self.evaluator.evaluate_relevance(
+                            research_theme,
+                            article,
+                            relevance_threshold
+                        )
 
-                    stats["total_evaluated"] += 1
+                        stats["total_evaluated"] += 1
+                        stats["session_article_count"] += 1  # セッションカウントを増やす
 
-                    # 論文情報を更新
-                    article.update({
-                        "relevance_score": evaluation["score"],
-                        "is_relevant": evaluation["is_relevant"],
-                        "relevance_reasoning": evaluation["reasoning"],
-                        "depth": depth,
-                        "source_pmid": pmid,
-                        "source_type": source_type
-                    })
+                        # 論文情報を更新
+                        article.update({
+                            "relevance_score": evaluation["score"],
+                            "is_relevant": evaluation["is_relevant"],
+                            "relevance_reasoning": evaluation["reasoning"],
+                            "depth": depth,
+                            "source_pmid": pmid,
+                            "source_type": source_type,
+                            "search_session_id": session_id  # セッションIDを記録
+                        })
 
-                    # プロジェクトに保存
-                    if project:
-                        project.add_article(article)
+                        # プロジェクトに保存（リアルタイム保存）
+                        if project:
+                            project.add_article(article)
+                            project.save()  # 各論文評価後に即座に保存
+                            self._notify_progress(
+                                progress_callback,
+                                f"✅ PMID {new_pmid} 評価完了・保存済み (スコア: {evaluation['score']}, 保存済み: {len(collected_articles) + 1}件)"
+                            )
+
+                    except Exception as e:
+                        # 評価エラー時も論文情報は保存（スコア0として）
+                        self._notify_progress(
+                            progress_callback,
+                            f"⚠️ PMID {new_pmid} の評価中にエラー: {str(e)}"
+                        )
+                        article.update({
+                            "relevance_score": 0,
+                            "is_relevant": False,
+                            "relevance_reasoning": f"評価エラー: {str(e)}",
+                            "depth": depth,
+                            "source_pmid": pmid,
+                            "source_type": source_type,
+                            "search_session_id": session_id  # セッションIDを記録
+                        })
+
+                        stats["session_article_count"] += 1  # エラー時もセッションカウントを増やす
+
+                        # エラー時も緊急保存
+                        if project:
+                            project.add_article(article)
+                            project.save()
+                            self._notify_progress(
+                                progress_callback,
+                                f"💾 エラーが発生しましたが、ここまでの進捗を保存しました (保存済み: {len(collected_articles) + 1}件)"
+                            )
 
                 collected_articles[new_pmid] = article
 

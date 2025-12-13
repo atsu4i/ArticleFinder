@@ -4,6 +4,7 @@ Notion API連携モジュール
 """
 
 import os
+import time
 from typing import Dict, Optional, List
 import httpx
 from dotenv import load_dotenv
@@ -58,35 +59,54 @@ class NotionAPI:
         Returns:
             ページID（見つからない場合はNone）
         """
-        try:
-            # データベースを検索
-            with httpx.Client() as client:
-                response = client.post(
-                    f"{self.base_url}/databases/{self.database_id}/query",
-                    headers=self.headers,
-                    json={
-                        "filter": {
-                            "property": "PubMed",
-                            "url": {
-                                "contains": pmid
+        # リトライ設定（タイムアウト対策）
+        max_retries = 3
+        retry_delays = [30, 60, 90]  # 30秒、60秒、90秒
+
+        for attempt in range(max_retries):
+            try:
+                # データベースを検索（タイムアウト60秒）
+                with httpx.Client(timeout=60.0) as client:
+                    response = client.post(
+                        f"{self.base_url}/databases/{self.database_id}/query",
+                        headers=self.headers,
+                        json={
+                            "filter": {
+                                "property": "PubMed",
+                                "url": {
+                                    "contains": pmid
+                                }
                             }
                         }
-                    }
-                )
-                response.raise_for_status()
-                result = response.json()
+                    )
+                    response.raise_for_status()
+                    result = response.json()
 
-                # 結果があればページIDを返す
-                if result.get("results"):
-                    return result["results"][0]["id"]
+                    # 結果があればページIDを返す
+                    if result.get("results"):
+                        return result["results"][0]["id"]
 
-            return None
+                return None
 
-        except Exception as e:
-            print(f"Failed to search Notion database for PMID {pmid}: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                error_message = str(e)
+                print(f"Notion API timeout for PMID {pmid} (attempt {attempt + 1}/{max_retries}): {error_message}")
+
+                # 最後のリトライでも失敗した場合
+                if attempt == max_retries - 1:
+                    print(f"  → {max_retries}回リトライ後もタイムアウトしました")
+                    return None
+
+                # タイムアウトの場合は待機してリトライ
+                wait_time = retry_delays[attempt]
+                print(f"  → {wait_time}秒待機してリトライします...")
+                time.sleep(wait_time)
+
+            except Exception as e:
+                print(f"Failed to search Notion database for PMID {pmid}: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
 
     def update_score(self, page_id: str, score: int) -> bool:
         """
@@ -99,27 +119,47 @@ class NotionAPI:
         Returns:
             成功した場合True、失敗した場合False
         """
-        try:
-            with httpx.Client() as client:
-                response = client.patch(
-                    f"{self.base_url}/pages/{page_id}",
-                    headers=self.headers,
-                    json={
-                        "properties": {
-                            "Score": {
-                                "number": score
+        # リトライ設定（タイムアウト対策）
+        max_retries = 3
+        retry_delays = [30, 60, 90]  # 30秒、60秒、90秒
+
+        for attempt in range(max_retries):
+            try:
+                # スコアを更新（タイムアウト60秒）
+                with httpx.Client(timeout=60.0) as client:
+                    response = client.patch(
+                        f"{self.base_url}/pages/{page_id}",
+                        headers=self.headers,
+                        json={
+                            "properties": {
+                                "Score": {
+                                    "number": score
+                                }
                             }
                         }
-                    }
-                )
-                response.raise_for_status()
-            return True
+                    )
+                    response.raise_for_status()
+                return True
 
-        except Exception as e:
-            print(f"Failed to update score for page {page_id}: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                error_message = str(e)
+                print(f"Notion API timeout for page {page_id} (attempt {attempt + 1}/{max_retries}): {error_message}")
+
+                # 最後のリトライでも失敗した場合
+                if attempt == max_retries - 1:
+                    print(f"  → {max_retries}回リトライ後もタイムアウトしました")
+                    return False
+
+                # タイムアウトの場合は待機してリトライ
+                wait_time = retry_delays[attempt]
+                print(f"  → {wait_time}秒待機してリトライします...")
+                time.sleep(wait_time)
+
+            except Exception as e:
+                print(f"Failed to update score for page {page_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                return False
 
     def check_and_update_articles(
         self,

@@ -4,6 +4,7 @@ Gemini APIを使用した論文関連性評価モジュール
 
 import os
 import re
+import time
 from typing import Dict, Optional
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -93,29 +94,54 @@ class GeminiEvaluator:
         if not abstract:
             abstract = f"(アブストラクトは利用できません。タイトルのみで評価してください: {title})"
 
-        # Geminiに評価を依頼
+        # Geminiに評価を依頼（リトライ付き）
         prompt = self._create_evaluation_prompt(research_theme, title, abstract)
 
-        try:
-            response = self.model.generate_content(prompt)
-            score, reasoning = self._parse_response(response.text)
+        # リトライ設定（TPM制限を考慮した待機時間）
+        max_retries = 3
+        retry_delays = [60, 120, 180]  # 1分、2分、3分
 
-            return {
-                "pmid": pmid,
-                "score": score,
-                "is_relevant": score >= threshold,
-                "reasoning": reasoning
-            }
+        for attempt in range(max_retries):
+            try:
+                response = self.model.generate_content(prompt)
+                score, reasoning = self._parse_response(response.text)
 
-        except Exception as e:
-            print(f"Gemini API error for PMID {pmid}: {e}")
-            # エラー時はスコア0を返す
-            return {
-                "pmid": pmid,
-                "score": 0,
-                "is_relevant": False,
-                "reasoning": f"評価中にエラーが発生しました: {str(e)}"
-            }
+                return {
+                    "pmid": pmid,
+                    "score": score,
+                    "is_relevant": score >= threshold,
+                    "reasoning": reasoning
+                }
+
+            except Exception as e:
+                error_message = str(e)
+                print(f"Gemini API error for PMID {pmid} (attempt {attempt + 1}/{max_retries}): {error_message}")
+
+                # 最後のリトライでも失敗した場合
+                if attempt == max_retries - 1:
+                    return {
+                        "pmid": pmid,
+                        "score": 0,
+                        "is_relevant": False,
+                        "reasoning": f"評価中にエラーが発生しました（{max_retries}回リトライ後）: {error_message}"
+                    }
+
+                # TPM制限エラーまたはタイムアウトの場合は待機してリトライ
+                if "quota" in error_message.lower() or "limit" in error_message.lower() or "timeout" in error_message.lower():
+                    wait_time = retry_delays[attempt]
+                    print(f"  → {wait_time}秒待機してリトライします...")
+                    time.sleep(wait_time)
+                else:
+                    # その他のエラーは即座にリトライ（短い待機のみ）
+                    time.sleep(5)
+
+        # この行には到達しないはずだが、念のため
+        return {
+            "pmid": pmid,
+            "score": 0,
+            "is_relevant": False,
+            "reasoning": "評価中に予期しないエラーが発生しました"
+        }
 
     def _create_evaluation_prompt(
         self,

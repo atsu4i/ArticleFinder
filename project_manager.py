@@ -88,7 +88,8 @@ class ProjectManager:
                 "total_articles": 0,
                 "total_evaluated": 0,
                 "total_relevant": 0
-            }
+            },
+            "search_sessions": []  # 検索セッション履歴
         }
 
         # メタデータを保存
@@ -315,6 +316,36 @@ class Project:
             統計情報
         """
         return self.metadata.get("stats", {})
+
+    def add_search_session(self, session_id: str, article_count: int):
+        """
+        検索セッションを追加
+
+        Args:
+            session_id: セッションID（タイムスタンプ）
+            article_count: このセッションで追加された論文数
+        """
+        # search_sessionsが存在しない場合は初期化（既存プロジェクトとの互換性）
+        if "search_sessions" not in self.metadata:
+            self.metadata["search_sessions"] = []
+
+        # 新しいセッションを追加
+        self.metadata["search_sessions"].append({
+            "session_id": session_id,
+            "article_count": article_count,
+            "timestamp": session_id  # session_idがタイムスタンプなので同じ値を使用
+        })
+
+    def get_search_sessions(self) -> List[Dict]:
+        """
+        検索セッション履歴を取得
+
+        Returns:
+            検索セッションのリスト（新しい順）
+        """
+        sessions = self.metadata.get("search_sessions", [])
+        # 新しい順にソート
+        return sorted(sessions, key=lambda x: x.get("timestamp", ""), reverse=True)
 
     def export_to_json(self) -> str:
         """
