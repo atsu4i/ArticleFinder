@@ -748,6 +748,21 @@ def display_project_articles(
         if a.get("relevance_score", 0) >= min_score_filter
     ]
 
+    # ページネーション設定
+    ITEMS_PER_PAGE = 100
+    total_articles = len(filtered_articles)
+    total_pages = (total_articles + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE  # 切り上げ
+
+    # ページ番号をセッションステートで管理
+    if 'project_page' not in st.session_state:
+        st.session_state.project_page = 1
+
+    # ページ番号が範囲外の場合は修正
+    if st.session_state.project_page > total_pages and total_pages > 0:
+        st.session_state.project_page = total_pages
+    elif st.session_state.project_page < 1:
+        st.session_state.project_page = 1
+
     st.info(f"表示件数: {len(filtered_articles)} / {len(articles)}")
 
     st.divider()
@@ -788,7 +803,43 @@ def display_project_articles(
     # 論文リスト（フィルタ後のみ表示）
     st.subheader("📄 論文リスト")
 
-    for i, article in enumerate(filtered_articles, 1):
+    # ページネーションコントロール
+    if total_pages > 1:
+        col_page1, col_page2, col_page3 = st.columns([1, 2, 1])
+
+        with col_page1:
+            if st.button("◀ 前へ", key="project_prev_page", disabled=(st.session_state.project_page == 1)):
+                st.session_state.project_page -= 1
+                st.rerun()
+
+        with col_page2:
+            # ページ番号選択
+            page_options = list(range(1, total_pages + 1))
+            selected_page = st.selectbox(
+                f"ページ ({total_pages}ページ中)",
+                options=page_options,
+                index=st.session_state.project_page - 1,
+                key="project_page_select"
+            )
+            if selected_page != st.session_state.project_page:
+                st.session_state.project_page = selected_page
+                st.rerun()
+
+        with col_page3:
+            if st.button("次へ ▶", key="project_next_page", disabled=(st.session_state.project_page == total_pages)):
+                st.session_state.project_page += 1
+                st.rerun()
+
+    # 現在のページの論文を取得
+    start_idx = (st.session_state.project_page - 1) * ITEMS_PER_PAGE
+    end_idx = min(start_idx + ITEMS_PER_PAGE, total_articles)
+    current_page_articles = filtered_articles[start_idx:end_idx]
+
+    # ページ情報を表示
+    if total_pages > 1:
+        st.info(f"📄 {start_idx + 1}〜{end_idx}件目を表示（全{total_articles}件中）")
+
+    for i, article in enumerate(current_page_articles, start_idx + 1):
         with st.expander(
             f"[{i}] {article.get('title', 'No Title')} "
             f"(スコア: {article.get('relevance_score', 0)})",
@@ -1111,12 +1162,63 @@ def display_results(result: dict, project=None):
         if a.get("relevance_score", 0) >= min_score_filter
     ]
 
+    # ページネーション設定
+    ITEMS_PER_PAGE_RESULTS = 100
+    total_articles_results = len(filtered_articles)
+    total_pages_results = (total_articles_results + ITEMS_PER_PAGE_RESULTS - 1) // ITEMS_PER_PAGE_RESULTS
+
+    # ページ番号をセッションステートで管理
+    if 'results_page' not in st.session_state:
+        st.session_state.results_page = 1
+
+    # ページ番号が範囲外の場合は修正
+    if st.session_state.results_page > total_pages_results and total_pages_results > 0:
+        st.session_state.results_page = total_pages_results
+    elif st.session_state.results_page < 1:
+        st.session_state.results_page = 1
+
     st.info(f"表示件数: {len(filtered_articles)} / {len(articles)}")
 
     # 論文リストを表示
     st.subheader("📄 論文リスト")
 
-    for i, article in enumerate(filtered_articles, 1):
+    # ページネーションコントロール
+    if total_pages_results > 1:
+        col_page1, col_page2, col_page3 = st.columns([1, 2, 1])
+
+        with col_page1:
+            if st.button("◀ 前へ", key="results_prev_page", disabled=(st.session_state.results_page == 1)):
+                st.session_state.results_page -= 1
+                st.rerun()
+
+        with col_page2:
+            # ページ番号選択
+            page_options_results = list(range(1, total_pages_results + 1))
+            selected_page_results = st.selectbox(
+                f"ページ ({total_pages_results}ページ中)",
+                options=page_options_results,
+                index=st.session_state.results_page - 1,
+                key="results_page_select"
+            )
+            if selected_page_results != st.session_state.results_page:
+                st.session_state.results_page = selected_page_results
+                st.rerun()
+
+        with col_page3:
+            if st.button("次へ ▶", key="results_next_page", disabled=(st.session_state.results_page == total_pages_results)):
+                st.session_state.results_page += 1
+                st.rerun()
+
+    # 現在のページの論文を取得
+    start_idx_results = (st.session_state.results_page - 1) * ITEMS_PER_PAGE_RESULTS
+    end_idx_results = min(start_idx_results + ITEMS_PER_PAGE_RESULTS, total_articles_results)
+    current_page_articles_results = filtered_articles[start_idx_results:end_idx_results]
+
+    # ページ情報を表示
+    if total_pages_results > 1:
+        st.info(f"📄 {start_idx_results + 1}〜{end_idx_results}件目を表示（全{total_articles_results}件中）")
+
+    for i, article in enumerate(current_page_articles_results, start_idx_results + 1):
         with st.expander(
             f"[{i}] {article.get('title', 'No Title')} "
             f"(スコア: {article.get('relevance_score', 0)})",
