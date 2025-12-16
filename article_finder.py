@@ -244,13 +244,18 @@ class ArticleFinder:
         if self.notion:
             self._notify_progress(progress_callback, "Notionデータベースをチェック中...")
             try:
+                # プロジェクト名を取得
+                project_name = project.metadata.get('name') if project else None
+
                 articles_list = self.notion.batch_check_articles(
                     articles_list,
                     update_score=True,
                     callback=lambda current, total, pmid: self._notify_progress(
                         progress_callback,
                         f"Notionチェック中 {current}/{total} (PMID: {pmid})"
-                    )
+                    ),
+                    project_name=project_name,
+                    research_theme=research_theme
                 )
                 self._notify_progress(progress_callback, "Notionチェック完了")
 

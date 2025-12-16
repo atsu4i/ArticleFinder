@@ -43,14 +43,14 @@ echo ✓ アプリケーションを起動中...
 echo.
 echo ブラウザが自動的に開きます
 echo 開かない場合は、以下のURLにアクセスしてください:
-echo   → http://localhost:8501
+echo   → http://localhost:8502
 echo.
 echo アプリを終了するには、このウィンドウで Ctrl+C を押してください
 echo.
 echo =========================================
 echo.
 
-streamlit run main.py
+streamlit run main.py --server.port 8502
 
 REM アプリ終了後
 echo.

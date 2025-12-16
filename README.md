@@ -41,7 +41,9 @@
 ### 🔗 外部連携
 - **Notion連携**: Notionデータベースとの連携
   - 論文の登録状態を自動チェック
-  - 関連性スコアをNotionに自動更新
+  - **プロジェクトごとのスコア管理**: 同じ論文でもプロジェクトごとに異なるスコアを記録
+    - `Project Scores` フィールドに全プロジェクトのスコア履歴を保存
+    - `Score` フィールドには最高スコアを自動設定
   - Notionページへ直接リンク
   - Notion未登録論文のみ表示するフィルタ
   - 連携情報の永続化（再読み込み時も反映）
@@ -120,7 +122,9 @@ NOTION_DATABASE_ID=your_database_id_here
 
 **必要なNotionデータベースのプロパティ**：
 - `PubMed`: URL型（論文のPubMed URLを保存）
-- `Score`: 数値型（関連性スコアを保存）
+- `Score`: 数値型（最高スコアを保存）
+- `Project Scores`: テキスト型（プロジェクトごとのスコア履歴を保存）
+  - 形式例: `プロジェクトA (テーマ: 糖尿病): 60点 (2024-01-15)`
 
 ## 📖 使い方
 
@@ -131,15 +135,15 @@ NOTION_DATABASE_ID=your_database_id_here
 - **Mac**: `run.command` をダブルクリック
 - **Windows**: `run.bat` をダブルクリック
 
-ブラウザが自動的に開きます（通常 http://localhost:8501）
+ブラウザが自動的に開きます（通常 http://localhost:8502）
 
 #### 手動セットアップを使用した場合
 
 ```bash
-streamlit run main.py
+streamlit run main.py --server.port 8502
 ```
 
-ブラウザが自動的に開きます（通常 http://localhost:8501）
+ブラウザが自動的に開きます（通常 http://localhost:8502）
 
 ### 2. 設定を入力
 

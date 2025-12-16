@@ -620,7 +620,9 @@ def display_project_articles(
                     updated_articles = notion.batch_check_articles(
                         articles,
                         update_score=True,
-                        callback=notion_progress
+                        callback=notion_progress,
+                        project_name=project.metadata.get('name'),
+                        research_theme=project.metadata.get('research_theme')
                     )
 
                     # プロジェクトを更新
