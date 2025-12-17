@@ -125,7 +125,7 @@ NOTION_DATABASE_ID=your_database_id_here
 - `PubMed`: URL型（論文のPubMed URLを保存）
 - `Score`: 数値型（最高スコアを保存）
 - `Project Scores`: テキスト型（プロジェクトごとのスコア履歴を保存）
-  - 形式例: `プロジェクトA (テーマ: 糖尿病): 60点 (2024-01-15)`
+  - 形式例: `プロジェクトA: 60点 (2024-01-15)`
 
 ## 📖 使い方
 

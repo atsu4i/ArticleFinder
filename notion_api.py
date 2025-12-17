@@ -240,19 +240,13 @@ class NotionAPI:
             scores_dict: parse_project_scores の逆
 
         Returns:
-            "プロジェクトA (テーマ: 糖尿病): 60点 (2024-01-15)" 形式のテキスト
+            "プロジェクトA: 60点 (2024-01-15)" 形式のテキスト
         """
         lines = []
         for project_name, info in sorted(scores_dict.items()):
-            theme = info.get("theme")
             score = info.get("score", 0)
             date = info.get("date", "")
-
-            if theme:
-                line = f"{project_name} (テーマ: {theme}): {score}点 ({date})"
-            else:
-                line = f"{project_name}: {score}点 ({date})"
-
+            line = f"{project_name}: {score}点 ({date})"
             lines.append(line)
 
         return '\n'.join(lines)
@@ -300,9 +294,9 @@ class NotionAPI:
                 # テキストを解析
                 scores_dict = self.parse_project_scores(project_scores_text)
 
-                # 現在のプロジェクトのスコアを更新
+                # 現在のプロジェクトのスコアを更新（テーマは保存しない）
                 scores_dict[project_name] = {
-                    "theme": research_theme,
+                    "theme": None,
                     "score": score,
                     "date": datetime.now().strftime("%Y-%m-%d")
                 }
