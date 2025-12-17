@@ -1101,7 +1101,7 @@ def display_results(result: dict, project=None):
     # フィルタ
     st.subheader("🔍 結果フィルタ")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         show_only_relevant = st.checkbox(
@@ -1111,6 +1111,14 @@ def display_results(result: dict, project=None):
         )
 
     with col2:
+        show_only_newly_evaluated = st.checkbox(
+            "新規評価のみ表示",
+            value=False,
+            key="results_filter_newly_evaluated",
+            help="このセッションで新規に評価された論文のみ表示（キャッシュを除外）"
+        )
+
+    with col3:
         show_not_in_notion = st.checkbox(
             "Notion未登録のみ表示",
             value=False,
@@ -1118,7 +1126,7 @@ def display_results(result: dict, project=None):
             help="Notionデータベースに未登録の論文のみ表示"
         )
 
-    with col3:
+    with col4:
         # セッション状態の初期化
         if 'filter_results_slider' not in st.session_state:
             st.session_state.filter_results_slider = 0
@@ -1153,6 +1161,9 @@ def display_results(result: dict, project=None):
 
     if show_only_relevant:
         filtered_articles = [a for a in filtered_articles if a.get("is_relevant", False)]
+
+    if show_only_newly_evaluated:
+        filtered_articles = [a for a in filtered_articles if a.get("is_newly_evaluated", False)]
 
     if show_not_in_notion:
         filtered_articles = [a for a in filtered_articles if not a.get("in_notion", False)]

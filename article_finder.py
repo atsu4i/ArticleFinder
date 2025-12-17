@@ -136,6 +136,9 @@ class ArticleFinder:
                 start_article["source_pmid"] = None
                 start_article["source_type"] = "起点論文"
 
+            # キャッシュから取得したことを示すフラグ
+            start_article["is_newly_evaluated"] = False
+
             stats["total_skipped"] = 1
         else:
             # キャッシュにない場合は取得・評価
@@ -160,7 +163,8 @@ class ArticleFinder:
                     "depth": 0,
                     "source_pmid": None,
                     "source_type": "起点論文",
-                    "search_session_id": session_id  # セッションIDを記録
+                    "search_session_id": session_id,  # セッションIDを記録
+                    "is_newly_evaluated": True  # 新規評価されたことを示すフラグ
                 })
 
                 stats["total_evaluated"] = 1
@@ -389,6 +393,9 @@ class ArticleFinder:
                         article["source_pmid"] = pmid
                         article["source_type"] = source_type
 
+                    # キャッシュから取得したことを示すフラグ
+                    article["is_newly_evaluated"] = False
+
                     stats["total_skipped"] += 1
                 else:
                     # キャッシュにない場合は取得・評価
@@ -426,7 +433,8 @@ class ArticleFinder:
                             "depth": depth,
                             "source_pmid": pmid,
                             "source_type": source_type,
-                            "search_session_id": session_id  # セッションIDを記録
+                            "search_session_id": session_id,  # セッションIDを記録
+                            "is_newly_evaluated": True  # 新規評価されたことを示すフラグ
                         })
 
                         # プロジェクトに保存（リアルタイム保存）
@@ -451,7 +459,8 @@ class ArticleFinder:
                             "depth": depth,
                             "source_pmid": pmid,
                             "source_type": source_type,
-                            "search_session_id": session_id  # セッションIDを記録
+                            "search_session_id": session_id,  # セッションIDを記録
+                            "is_newly_evaluated": True  # エラーでも評価は試みたのでTrue
                         })
 
                         stats["session_article_count"] += 1  # エラー時もセッションカウントを増やす
