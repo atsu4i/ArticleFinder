@@ -767,6 +767,87 @@ def display_project_articles(
 
     st.divider()
 
+    # フィルタ後のNotion連携
+    if len(filtered_articles) < len(articles):
+        st.subheader("🔗 フィルタ後の論文をNotionチェック")
+
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            st.info(f"フィルタ後の {len(filtered_articles)} 件の論文のみをチェックします")
+
+        with col2:
+            notion_api_key_filtered = os.getenv("NOTION_API_KEY", "")
+            notion_database_id_filtered = os.getenv("NOTION_DATABASE_ID", "")
+
+            if st.button(
+                "🔍 フィルタ後をチェック",
+                type="secondary",
+                use_container_width=True,
+                disabled=not (notion_api_key_filtered and notion_database_id_filtered),
+                help="フィルタされた論文のみNotionデータベースをチェックし、スコアを更新",
+                key="notion_check_filtered"
+            ):
+                if not notion_api_key_filtered or not notion_database_id_filtered:
+                    st.error("Notion API KeyとDatabase IDを設定してください（上部のNotion連携セクション）")
+                else:
+                    # Notionチェックを実行
+                    try:
+                        # NotionAPIを初期化
+                        from notion_api import NotionAPI
+                        notion = NotionAPI(notion_api_key_filtered, notion_database_id_filtered)
+
+                        # プログレスバーを表示
+                        progress_placeholder = st.empty()
+                        status_placeholder = st.empty()
+
+                        def notion_progress(current, total, pmid):
+                            progress_placeholder.progress(current / total)
+                            status_placeholder.info(f"Notionチェック中 {current}/{total} (PMID: {pmid})")
+
+                        status_placeholder.info("フィルタ後の論文をNotionデータベースでチェック中...")
+
+                        # フィルタ後の論文のみチェック
+                        updated_articles = notion.batch_check_articles(
+                            filtered_articles,
+                            update_score=True,
+                            callback=notion_progress,
+                            project_name=project.metadata.get('name'),
+                            research_theme=project.metadata.get('research_theme')
+                        )
+
+                        # プロジェクトを更新
+                        for article in updated_articles:
+                            project.add_article(article)
+
+                        project.save()
+
+                        # 統計情報
+                        notion_registered = len([a for a in updated_articles if a.get("in_notion", False)])
+                        score_updated = len([a for a in updated_articles if a.get("notion_score_updated", False)])
+
+                        progress_placeholder.empty()
+                        status_placeholder.success(
+                            f"✅ Notionチェック完了！\n\n"
+                            f"- チェック対象: {len(filtered_articles)}件\n"
+                            f"- 登録済み: {notion_registered}件\n"
+                            f"- スコア更新: {score_updated}件"
+                        )
+
+                        # 画面を再読み込み
+                        st.rerun()
+
+                    except ImportError:
+                        st.error("notion-clientがインストールされていません。`pip install notion-client`を実行してください")
+                    except Exception as e:
+                        st.error(f"Notionチェック中にエラーが発生しました: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
+
+        st.divider()
+
+    st.divider()
+
     # データエクスポート
     st.subheader("💾 データエクスポート")
 
