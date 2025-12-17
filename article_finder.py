@@ -244,32 +244,51 @@ class ArticleFinder:
         # 関連性スコアでソート
         articles_list.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
 
-        # Notion連携（オプション）
+        # Notion連携（オプション）- 新規評価された論文のみ
         if self.notion:
-            self._notify_progress(progress_callback, "Notionデータベースをチェック中...")
-            try:
-                # プロジェクト名を取得
-                project_name = project.metadata.get('name') if project else None
+            # 新規評価された論文のみを抽出
+            newly_evaluated_articles = [
+                a for a in articles_list
+                if a.get("is_newly_evaluated", False)
+            ]
 
-                articles_list = self.notion.batch_check_articles(
-                    articles_list,
-                    update_score=True,
-                    callback=lambda current, total, pmid: self._notify_progress(
-                        progress_callback,
-                        f"Notionチェック中 {current}/{total} (PMID: {pmid})"
-                    ),
-                    project_name=project_name,
-                    research_theme=research_theme
+            if newly_evaluated_articles:
+                self._notify_progress(
+                    progress_callback,
+                    f"新規評価された {len(newly_evaluated_articles)} 件の論文をNotionデータベースでチェック中..."
                 )
-                self._notify_progress(progress_callback, "Notionチェック完了")
+                try:
+                    # プロジェクト名を取得
+                    project_name = project.metadata.get('name') if project else None
 
-                # Notion情報をプロジェクトに反映
-                if project:
-                    for article in articles_list:
-                        project.add_article(article)
-                    self._notify_progress(progress_callback, "Notion情報をプロジェクトに保存しました")
-            except Exception as e:
-                self._notify_progress(progress_callback, f"Notionチェックエラー: {e}")
+                    updated_articles = self.notion.batch_check_articles(
+                        newly_evaluated_articles,
+                        update_score=True,
+                        callback=lambda current, total, pmid: self._notify_progress(
+                            progress_callback,
+                            f"Notionチェック中 {current}/{total} (PMID: {pmid})"
+                        ),
+                        project_name=project_name,
+                        research_theme=research_theme
+                    )
+                    self._notify_progress(progress_callback, "Notionチェック完了")
+
+                    # 更新された論文情報をarticles_listに反映
+                    pmid_to_updated = {a.get("pmid"): a for a in updated_articles}
+                    for i, article in enumerate(articles_list):
+                        pmid = article.get("pmid")
+                        if pmid in pmid_to_updated:
+                            articles_list[i] = pmid_to_updated[pmid]
+
+                    # Notion情報をプロジェクトに反映
+                    if project:
+                        for article in updated_articles:
+                            project.add_article(article)
+                        self._notify_progress(progress_callback, "Notion情報をプロジェクトに保存しました")
+                except Exception as e:
+                    self._notify_progress(progress_callback, f"Notionチェックエラー: {e}")
+            else:
+                self._notify_progress(progress_callback, "新規評価された論文がないため、Notionチェックをスキップしました")
 
         # プロジェクトを保存
         if project:
