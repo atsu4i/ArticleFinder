@@ -1002,6 +1002,34 @@ def display_project_articles(
                 st.markdown("**AI評価理由:**")
                 st.info(article['relevance_reasoning'])
 
+            # コメント・メモ機能
+            st.markdown("**📝 メモ・コメント:**")
+            existing_comment = article.get('comment', '')
+
+            # コメント入力エリア
+            comment = st.text_area(
+                label="メモを入力",
+                value=existing_comment,
+                key=f"comment_{pmid}_{i}",
+                height=100,
+                label_visibility="collapsed",
+                placeholder="この論文に関するメモやコメントを入力してください..."
+            )
+
+            # コメント保存ボタン
+            if st.button(
+                "💾 メモを保存",
+                key=f"save_comment_{pmid}_{i}",
+                type="secondary",
+                help="メモをプロジェクトに保存します"
+            ):
+                # 論文のコメントを更新
+                article['comment'] = comment
+                project.articles[pmid] = article
+                project.save()
+                st.success("メモを保存しました")
+                st.rerun()
+
             st.divider()
 
             # ボタン群
@@ -1394,6 +1422,42 @@ def display_results(result: dict, project=None):
             if article.get('relevance_reasoning'):
                 st.markdown("**AI評価理由:**")
                 st.info(article['relevance_reasoning'])
+
+            # コメント・メモ機能（プロジェクトがある場合のみ）
+            if project:
+                st.markdown("**📝 メモ・コメント:**")
+                pmid = article.get('pmid')
+
+                # プロジェクトから最新の論文データを取得
+                project_article = project.get_article(pmid)
+                existing_comment = project_article.get('comment', '') if project_article else ''
+
+                # コメント入力エリア
+                comment = st.text_area(
+                    label="メモを入力",
+                    value=existing_comment,
+                    key=f"comment_result_{pmid}_{i}",
+                    height=100,
+                    label_visibility="collapsed",
+                    placeholder="この論文に関するメモやコメントを入力してください..."
+                )
+
+                # コメント保存ボタン
+                if st.button(
+                    "💾 メモを保存",
+                    key=f"save_comment_result_{pmid}_{i}",
+                    type="secondary",
+                    help="メモをプロジェクトに保存します"
+                ):
+                    if project_article:
+                        # 論文のコメントを更新
+                        project_article['comment'] = comment
+                        project.articles[pmid] = project_article
+                        project.save()
+                        st.success("メモを保存しました")
+                        st.rerun()
+                    else:
+                        st.warning("この論文はプロジェクトに保存されていません")
 
     st.divider()
 
