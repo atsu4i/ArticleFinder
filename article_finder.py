@@ -369,16 +369,19 @@ class ArticleFinder:
                 similar = self.pubmed.get_related_articles(pmid, "similar")
                 # 制限数まで切り詰め
                 related_pmids_with_source.extend([(p, "similar") for p in similar[:max_similar]])
+                self._notify_progress(progress_callback, f"  Similar articles: {len(similar[:max_similar])} 件取得")
 
             if include_cited_by:
                 cited_by = self.pubmed.get_related_articles(pmid, "cited_by")
                 # 制限数まで切り詰め
                 related_pmids_with_source.extend([(p, "cited_by") for p in cited_by[:max_cited_by]])
+                self._notify_progress(progress_callback, f"  Cited by: {len(cited_by[:max_cited_by])} 件取得")
 
             if include_references:
                 references = self.pubmed.get_related_articles(pmid, "references")
                 # 制限数まで切り詰め
                 related_pmids_with_source.extend([(p, "references") for p in references[:max_references]])
+                self._notify_progress(progress_callback, f"  References: {len(references[:max_references])} 件取得")
 
             # 重複削除（同じPMIDでもソースが異なる場合、最初のもののみ保持）
             seen_pmids = set()

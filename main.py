@@ -497,6 +497,14 @@ def main():
                 st.error(f"プロジェクトの作成に失敗: {e}")
                 return
 
+        # デバッグ情報を表示
+        with st.expander("🔍 探索設定の確認", expanded=False):
+            st.write("**関連論文取得設定:**")
+            st.write(f"- Similar articles: {include_similar} (最大: {max_similar}件)")
+            st.write(f"- Cited by: {include_cited_by} (最大: {max_cited_by}件)")
+            st.write(f"- References: {include_references} (最大: {max_references}件)")
+            st.write(f"- 年代フィルタ: {year_from if year_from else 'なし'}")
+
         # 探索実行
         run_search(
             api_key=api_key,
