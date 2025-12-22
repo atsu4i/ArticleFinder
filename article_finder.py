@@ -206,13 +206,35 @@ class ArticleFinder:
         # 起点論文は評価スコアに関わらず、必ず次の階層へ進む
         current_layer = [start_pmid]
 
+        # デバッグ情報をターミナルに出力
+        print(f"\n{'='*60}")
+        print(f"[DEBUG] 探索開始")
+        print(f"  起点PMID: {start_pmid}")
+        print(f"  max_depth: {max_depth}")
+        print(f"  max_articles: {max_articles}")
+        print(f"  include_similar: {include_similar}, max_similar: {max_similar}")
+        print(f"  include_cited_by: {include_cited_by}, max_cited_by: {max_cited_by}")
+        print(f"  include_references: {include_references}, max_references: {max_references}")
+        print(f"  current_layer: {current_layer}")
+        print(f"{'='*60}\n")
+
         for depth in range(1, max_depth + 1):
+            print(f"\n[DEBUG] 探索階層 {depth}/{max_depth} 開始")
+            print(f"  current_layer: {current_layer}")
+            print(f"  collected_articles: {len(collected_articles)}件")
+
             # 停止チェック
             if should_stop_callback and should_stop_callback():
+                print(f"[DEBUG] 停止リクエストを受け付けました")
                 self._notify_progress(progress_callback, "停止リクエストを受け付けました")
                 break
 
-            if not current_layer or len(collected_articles) >= max_articles:
+            if not current_layer:
+                print(f"[DEBUG] current_layerが空のため終了")
+                break
+
+            if len(collected_articles) >= max_articles:
+                print(f"[DEBUG] max_articles到達のため終了")
                 break
 
             stats["depth_reached"] = depth
@@ -341,9 +363,17 @@ class ArticleFinder:
         Returns:
             次の階層で探索すべきPMIDのリスト
         """
+        print(f"\n[DEBUG] _explore_layer 開始")
+        print(f"  処理するPMID数: {len(pmids)}")
+        print(f"  PMIDs: {pmids}")
+        print(f"  include_similar={include_similar}, max_similar={max_similar}")
+        print(f"  include_cited_by={include_cited_by}, max_cited_by={max_cited_by}")
+        print(f"  include_references={include_references}, max_references={max_references}")
+
         next_layer_pmids = []
 
-        for pmid in pmids:
+        for i, pmid in enumerate(pmids):
+            print(f"\n[DEBUG] 論文 {i+1}/{len(pmids)}: PMID {pmid} を処理中")
             # 停止チェック
             if should_stop_callback and should_stop_callback():
                 self._notify_progress(progress_callback, "停止リクエストを受け付けました")
@@ -365,23 +395,29 @@ class ArticleFinder:
             # 関連論文を取得（ソース情報も含む）
             related_pmids_with_source = []
 
+            print(f"  [DEBUG] 関連論文取得開始")
             if include_similar:
                 similar = self.pubmed.get_related_articles(pmid, "similar")
                 # 制限数まで切り詰め
                 related_pmids_with_source.extend([(p, "similar") for p in similar[:max_similar]])
+                print(f"    Similar articles: {len(similar)} 件中 {len(similar[:max_similar])} 件取得")
                 self._notify_progress(progress_callback, f"  Similar articles: {len(similar[:max_similar])} 件取得")
 
             if include_cited_by:
                 cited_by = self.pubmed.get_related_articles(pmid, "cited_by")
                 # 制限数まで切り詰め
                 related_pmids_with_source.extend([(p, "cited_by") for p in cited_by[:max_cited_by]])
+                print(f"    Cited by: {len(cited_by)} 件中 {len(cited_by[:max_cited_by])} 件取得")
                 self._notify_progress(progress_callback, f"  Cited by: {len(cited_by[:max_cited_by])} 件取得")
 
             if include_references:
                 references = self.pubmed.get_related_articles(pmid, "references")
                 # 制限数まで切り詰め
                 related_pmids_with_source.extend([(p, "references") for p in references[:max_references]])
+                print(f"    References: {len(references)} 件中 {len(references[:max_references])} 件取得")
                 self._notify_progress(progress_callback, f"  References: {len(references[:max_references])} 件取得")
+
+            print(f"  [DEBUG] 合計 {len(related_pmids_with_source)} 件の関連論文を取得")
 
             # 重複削除（同じPMIDでもソースが異なる場合、最初のもののみ保持）
             seen_pmids = set()
@@ -395,6 +431,10 @@ class ArticleFinder:
 
             # 未訪問の論文のみ処理
             new_pmids_with_source = [(p, source_type) for p, source_type in related_pmids_with_source if p not in visited_pmids]
+
+            print(f"  [DEBUG] 未訪問の論文: {len(new_pmids_with_source)} 件")
+            if len(new_pmids_with_source) > 0:
+                print(f"    最初の5件: {[p for p, _ in new_pmids_with_source[:5]]}")
 
             self._notify_progress(
                 progress_callback,
@@ -519,6 +559,12 @@ class ArticleFinder:
                 if article.get("is_relevant"):
                     stats["total_relevant"] += 1
                     next_layer_pmids.append(new_pmid)
+                    print(f"    PMID {new_pmid} を次の階層に追加 (スコア: {article.get('relevance_score')})")
+
+        print(f"\n[DEBUG] _explore_layer 終了")
+        print(f"  次の階層に追加する論文数: {len(next_layer_pmids)} 件")
+        if next_layer_pmids:
+            print(f"  PMIDs: {next_layer_pmids[:5]}...")
 
         return next_layer_pmids
 
