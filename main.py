@@ -348,36 +348,56 @@ def main():
         # 関連論文取得設定
         st.subheader("関連論文取得設定")
 
-        # セッション状態の初期化
-        if 'config_max_related_slider' not in st.session_state:
-            st.session_state.config_max_related_slider = 20
-        if 'config_max_related_input' not in st.session_state:
-            st.session_state.config_max_related_input = 20
-
-        # 1論文あたりの最大関連論文数
-        col_slider, col_input = st.columns([3, 1])
-        with col_slider:
-            st.slider(
-                "1論文あたりの最大関連論文数",
-                min_value=5,
-                max_value=100,
-                step=5,
-                help="各論文から取得するSimilar articles / Cited byの最大数",
-                key="config_max_related_slider",
-                on_change=lambda: setattr(st.session_state, 'config_max_related_input', st.session_state.config_max_related_slider)
-            )
-        with col_input:
-            st.number_input(
+        # Similar articles設定
+        st.markdown("**Similar articles（類似論文）**")
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            include_similar = st.checkbox("Similar articlesを探索", value=True, key="include_similar")
+        with col2:
+            max_similar = st.number_input(
                 "最大数",
                 min_value=5,
                 max_value=100,
+                value=20,
                 step=5,
-                label_visibility="collapsed",
-                key="config_max_related_input",
-                on_change=lambda: setattr(st.session_state, 'config_max_related_slider', st.session_state.config_max_related_input)
+                disabled=not st.session_state.get("include_similar", True),
+                key="max_similar",
+                help="1論文あたりの最大取得数"
             )
 
-        max_related_per_article = st.session_state.config_max_related_slider
+        # Cited by設定
+        st.markdown("**Cited by（この論文を引用している論文）**")
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            include_cited_by = st.checkbox("Cited byを探索", value=True, key="include_cited_by")
+        with col2:
+            max_cited_by = st.number_input(
+                "最大数",
+                min_value=5,
+                max_value=100,
+                value=20,
+                step=5,
+                disabled=not st.session_state.get("include_cited_by", True),
+                key="max_cited_by",
+                help="1論文あたりの最大取得数"
+            )
+
+        # References設定
+        st.markdown("**References（この論文が引用している文献）**")
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            include_references = st.checkbox("Referencesを探索", value=False, key="include_references")
+        with col2:
+            max_references = st.number_input(
+                "最大数",
+                min_value=5,
+                max_value=100,
+                value=20,
+                step=5,
+                disabled=not st.session_state.get("include_references", False),
+                key="max_references",
+                help="1論文あたりの最大取得数"
+            )
 
         st.divider()
 
@@ -394,9 +414,6 @@ def main():
                 value=2020,
                 step=1
             )
-
-        include_similar = st.checkbox("Similar articles を探索", value=True)
-        include_cited_by = st.checkbox("Cited by を探索", value=True)
 
     # メインエリア
     col1, col2 = st.columns([1, 1])
@@ -439,8 +456,11 @@ def main():
                 relevance_threshold=relevance_threshold,
                 year_from=year_from,
                 include_similar=include_similar,
+                max_similar=max_similar,
                 include_cited_by=include_cited_by,
-                max_related_per_article=max_related_per_article,
+                max_cited_by=max_cited_by,
+                include_references=include_references,
+                max_references=max_references,
                 notion_api_key=notion_api_key if use_notion else None,
                 notion_database_id=notion_database_id if use_notion else None
             )
@@ -488,9 +508,12 @@ def main():
             relevance_threshold=relevance_threshold,
             year_from=year_from,
             include_similar=include_similar,
+            max_similar=max_similar,
             include_cited_by=include_cited_by,
+            max_cited_by=max_cited_by,
+            include_references=include_references,
+            max_references=max_references,
             project=project,
-            max_related_per_article=max_related_per_article,
             notion_api_key=notion_api_key if use_notion else None,
             notion_database_id=notion_database_id if use_notion else None
         )
@@ -510,8 +533,11 @@ def display_project_articles(
     relevance_threshold: int,
     year_from: Optional[int],
     include_similar: bool,
+    max_similar: int,
     include_cited_by: bool,
-    max_related_per_article: int,
+    max_cited_by: int,
+    include_references: bool,
+    max_references: int,
     notion_api_key: Optional[str] = None,
     notion_database_id: Optional[str] = None
 ):
@@ -1057,9 +1083,12 @@ def display_project_articles(
                         relevance_threshold=relevance_threshold,
                         year_from=year_from,
                         include_similar=include_similar,
+                        max_similar=max_similar,
                         include_cited_by=include_cited_by,
+                        max_cited_by=max_cited_by,
+                        include_references=include_references,
+                        max_references=max_references,
                         project=project,
-                        max_related_per_article=max_related_per_article,
                         notion_api_key=notion_api_key,
                         notion_database_id=notion_database_id
                     )
@@ -1090,9 +1119,12 @@ def run_search(
     relevance_threshold: int,
     year_from: int,
     include_similar: bool,
+    max_similar: int,
     include_cited_by: bool,
+    max_cited_by: int,
+    include_references: bool,
+    max_references: int,
     project,
-    max_related_per_article: int = 20,
     notion_api_key: Optional[str] = None,
     notion_database_id: Optional[str] = None
 ):
@@ -1139,11 +1171,14 @@ def run_search(
                 relevance_threshold=relevance_threshold,
                 year_from=year_from,
                 include_similar=include_similar,
+                max_similar=max_similar,
                 include_cited_by=include_cited_by,
+                max_cited_by=max_cited_by,
+                include_references=include_references,
+                max_references=max_references,
                 progress_callback=progress_callback,
                 project=project,
-                should_stop_callback=should_stop,
-                max_related_per_article=max_related_per_article
+                should_stop_callback=should_stop
             )
 
         # 停止ボタンを非表示

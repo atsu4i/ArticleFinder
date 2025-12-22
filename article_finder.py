@@ -53,11 +53,14 @@ class ArticleFinder:
         relevance_threshold: int = 60,
         year_from: Optional[int] = None,
         include_similar: bool = True,
+        max_similar: int = 20,
         include_cited_by: bool = True,
+        max_cited_by: int = 20,
+        include_references: bool = False,
+        max_references: int = 20,
         progress_callback: Optional[Callable] = None,
         project: Optional[Project] = None,
-        should_stop_callback: Optional[Callable] = None,
-        max_related_per_article: int = 20
+        should_stop_callback: Optional[Callable] = None
     ) -> Dict:
         """
         論文を探索して関連論文を収集
@@ -70,11 +73,14 @@ class ArticleFinder:
             relevance_threshold: 関連性スコアの閾値（0-100）
             year_from: この年以降の論文のみ（Noneの場合は制限なし）
             include_similar: Similar articlesを探索するか
+            max_similar: Similar articlesの最大取得数（1論文あたり）
             include_cited_by: Cited byを探索するか
+            max_cited_by: Cited byの最大取得数（1論文あたり）
+            include_references: Referencesを探索するか
+            max_references: Referencesの最大取得数（1論文あたり）
             progress_callback: 進捗通知用コールバック関数
             project: プロジェクト（指定時は重複チェックとキャッシュを使用）
             should_stop_callback: 停止チェック用コールバック関数（Trueを返すと探索を停止）
-            max_related_per_article: 1論文あたりの最大関連論文数（Similar/Cited byそれぞれに適用）
 
         Returns:
             {
@@ -227,12 +233,15 @@ class ArticleFinder:
                 relevance_threshold=relevance_threshold,
                 year_from=year_from,
                 include_similar=include_similar,
+                max_similar=max_similar,
                 include_cited_by=include_cited_by,
+                max_cited_by=max_cited_by,
+                include_references=include_references,
+                max_references=max_references,
                 progress_callback=progress_callback,
                 stats=stats,
                 project=project,
                 should_stop_callback=should_stop_callback,
-                max_related_per_article=max_related_per_article,
                 session_id=session_id  # セッションIDを渡す
             )
 
@@ -315,12 +324,15 @@ class ArticleFinder:
         relevance_threshold: int,
         year_from: Optional[int],
         include_similar: bool,
+        max_similar: int,
         include_cited_by: bool,
+        max_cited_by: int,
+        include_references: bool,
+        max_references: int,
         progress_callback: Optional[Callable],
         stats: Dict,
         project: Optional[Project],
         should_stop_callback: Optional[Callable] = None,
-        max_related_per_article: int = 20,
         session_id: str = None
     ) -> List[str]:
         """
@@ -356,12 +368,17 @@ class ArticleFinder:
             if include_similar:
                 similar = self.pubmed.get_related_articles(pmid, "similar")
                 # 制限数まで切り詰め
-                related_pmids_with_source.extend([(p, "similar") for p in similar[:max_related_per_article]])
+                related_pmids_with_source.extend([(p, "similar") for p in similar[:max_similar]])
 
             if include_cited_by:
                 cited_by = self.pubmed.get_related_articles(pmid, "cited_by")
                 # 制限数まで切り詰め
-                related_pmids_with_source.extend([(p, "cited_by") for p in cited_by[:max_related_per_article]])
+                related_pmids_with_source.extend([(p, "cited_by") for p in cited_by[:max_cited_by]])
+
+            if include_references:
+                references = self.pubmed.get_related_articles(pmid, "references")
+                # 制限数まで切り詰め
+                related_pmids_with_source.extend([(p, "references") for p in references[:max_references]])
 
             # 重複削除（同じPMIDでもソースが異なる場合、最初のもののみ保持）
             seen_pmids = set()

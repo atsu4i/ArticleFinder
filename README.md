@@ -1,6 +1,6 @@
 # 📚 PubMed論文検索自動化ツール
 
-医学研究における参考文献探しを効率化するツールです。起点となる論文から、PubMedのSimilar ArticlesとCited Byを自動的に辿り、Gemini AIを使って研究テーマとの関連性を評価しながら、関連論文を収集します。
+医学研究における参考文献探しを効率化するツールです。起点となる論文から、PubMedのSimilar Articles、Cited by、Referencesを自動的に辿り、Gemini AIを使って研究テーマとの関連性を評価しながら、関連論文を収集します。
 
 ## ✨ 主な機能
 
@@ -28,7 +28,7 @@
 - **フィルタ＆エクスポート**: 検索なしでプロジェクト内論文をフィルタリング・エクスポート可能
   - 検索セッション、Notion登録状態、スコアで絞り込み
   - 評価日時を論文詳細に表示
-- **ソース追跡**: 各論文がどの論文のSimilar/Cited byから発見されたかを記録
+- **ソース追跡**: 各論文がどの論文のSimilar/Cited by/Referencesから発見されたかを記録
 
 ### 🎨 UI・UX
 - **WebベースGUI**: Streamlitによる使いやすいインターフェース
@@ -183,13 +183,22 @@ streamlit run main.py --server.port 8502
   - スライダーまたは数値入力で設定可能
 
 ##### 関連論文取得設定
-- **1論文あたりの最大関連論文数**: 各論文から取得するSimilar/Cited byの最大数（5-100、5刻み）
-  - デフォルト: 20
-  - 探索数の爆発を防ぐための重要な設定
+各探索タイプごとに個別に設定可能：
+
+- **Similar articles（類似論文）**:
+  - 探索する/しない（チェックボックス）
+  - 最大取得数（1論文あたり、5-100、5刻み、デフォルト: 20）
+
+- **Cited by（この論文を引用している論文）**:
+  - 探索する/しない（チェックボックス）
+  - 最大取得数（1論文あたり、5-100、5刻み、デフォルト: 20）
+
+- **References（この論文が引用している文献）**:
+  - 探索する/しない（チェックボックス、デフォルト: オフ）
+  - 最大取得数（1論文あたり、5-100、5刻み、デフォルト: 20）
 
 ##### フィルタ設定
 - **年代フィルタ**: 特定の年以降の論文のみ収集（オプション）
-- **探索対象**: Similar articles / Cited by の選択
 
 #### メインエリア
 
@@ -219,7 +228,7 @@ streamlit run main.py --server.port 8502
   - 京都大学図書館Article Linkerへのリンク
   - 関連性スコア、関連あり/なし、探索階層
   - Notion登録状態とNotionページへのリンク
-  - 発見元の表示（どの論文のSimilar/Cited byから発見されたか）
+  - 発見元の表示（どの論文のSimilar/Cited by/Referencesから発見されたか）
   - Abstract全文
   - AI評価理由
   - **📝 メモ・コメント機能**: 各論文に自分用のメモやコメントを追加・保存できます
@@ -279,7 +288,7 @@ AriticleFinder/
 
 1. **起点論文を取得**: PubMed APIから論文情報とアブストラクトを取得
 2. **AI評価**: Gemini APIで研究テーマとの関連性を評価
-3. **関連論文を取得**: Similar articlesとCited byのリストを取得
+3. **関連論文を取得**: Similar articles、Cited by、Referencesのリストを取得（設定に応じて）
 4. **再帰的探索**: 関連性が高い論文についてステップ2-3を繰り返す
 5. **結果出力**: 収集した論文をスコア順にソートして表示
 
@@ -287,7 +296,10 @@ AriticleFinder/
 
 - **ESummary**: 論文のメタデータ取得
 - **EFetch**: アブストラクト取得
-- **ELink**: 関連論文・引用論文のリンク取得
+- **ELink**: 関連論文・引用論文・引用文献のリンク取得
+  - **Similar articles**: 類似論文
+  - **Cited by**: この論文を引用している論文
+  - **References**: この論文が引用している文献
 - レート制限: 1秒に3リクエストまで（自動調整）
 
 ### Gemini API
@@ -364,7 +376,7 @@ projects/
         - is_relevant: 関連性あり/なし
         - relevance_reasoning: 評価理由
         - source_pmid: 発見元のPMID
-        - source_type: 発見元のタイプ（similar/cited_by/起点論文）
+        - source_type: 発見元のタイプ（similar/cited_by/references/起点論文）
         - depth: 探索階層
         - evaluated_at: 評価日時
         - comment: ユーザーが追加したメモ・コメント（オプション）

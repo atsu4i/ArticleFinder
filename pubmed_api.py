@@ -186,14 +186,15 @@ class PubMedAPI:
 
         Args:
             pmid: PubMed ID
-            relation_type: "similar" (類似論文) or "cited_by" (引用論文)
+            relation_type: "similar" (類似論文), "cited_by" (引用論文), "references" (引用文献)
 
         Returns:
             関連論文のPMIDリスト
         """
         linkname_map = {
             "similar": "pubmed_pubmed",
-            "cited_by": "pubmed_pubmed_citedin"
+            "cited_by": "pubmed_pubmed_citedin",
+            "references": "pubmed_pubmed_refs"
         }
 
         linkname = linkname_map.get(relation_type)
@@ -228,7 +229,7 @@ class PubMedAPI:
 
     def get_all_related_articles(self, pmid: str) -> Dict[str, List[str]]:
         """
-        similar articlesとcited byの両方を取得
+        similar articles、cited by、referencesを取得
 
         Args:
             pmid: PubMed ID
@@ -236,10 +237,12 @@ class PubMedAPI:
         Returns:
             {
                 "similar": [pmid1, pmid2, ...],
-                "cited_by": [pmid3, pmid4, ...]
+                "cited_by": [pmid3, pmid4, ...],
+                "references": [pmid5, pmid6, ...]
             }
         """
         return {
             "similar": self.get_related_articles(pmid, "similar"),
-            "cited_by": self.get_related_articles(pmid, "cited_by")
+            "cited_by": self.get_related_articles(pmid, "cited_by"),
+            "references": self.get_related_articles(pmid, "references")
         }
