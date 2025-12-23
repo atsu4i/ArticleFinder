@@ -112,10 +112,11 @@ class OpenAlexAPI:
         authors = []
         authorships = work.get("authorships", [])[:3]  # 最初の3人
         for authorship in authorships:
-            author = authorship.get("author", {})
-            display_name = author.get("display_name", "")
-            if display_name:
-                authors.append(display_name)
+            author = authorship.get("author") or {}
+            if author:
+                display_name = author.get("display_name", "")
+                if display_name:
+                    authors.append(display_name)
 
         if len(work.get("authorships", [])) > 3:
             authors.append("et al.")
@@ -127,10 +128,11 @@ class OpenAlexAPI:
 
         # ジャーナル名を取得
         journal = ""
-        primary_location = work.get("primary_location", {})
+        primary_location = work.get("primary_location") or {}
         if primary_location:
-            source = primary_location.get("source", {})
-            journal = source.get("display_name", "")
+            source = primary_location.get("source") or {}
+            if source:
+                journal = source.get("display_name", "")
 
         # アブストラクトを取得（OpenAlexにはない場合が多い）
         abstract = work.get("abstract", "")
@@ -203,7 +205,9 @@ class OpenAlexAPI:
 
             # PMIDとDOIを抽出
             for result in response["results"]:
-                ids = result.get("ids", {})
+                ids = result.get("ids") or {}
+                if not ids:
+                    continue
 
                 # DOIを取得（必須）
                 doi_value = ids.get("doi")
@@ -270,7 +274,10 @@ class OpenAlexAPI:
         # PMIDを抽出
         pmids = []
         for result in response["results"]:
-            ids = result.get("ids", {})
+            ids = result.get("ids") or {}
+            if not ids:
+                continue
+
             pmid_value = ids.get("pmid")
 
             if pmid_value:
