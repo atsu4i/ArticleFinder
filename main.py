@@ -976,11 +976,17 @@ def display_project_articles(
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                pmid = article.get('pmid', 'N/A')
-                st.markdown(f"**PMID:** [{pmid}]({article.get('url', '#')})")
+                pmid = article.get('pmid')
+                doi = article.get('doi')
+
+                # PMID表示（ある場合のみ）
+                if pmid:
+                    st.markdown(f"**PMID:** [{pmid}]({article.get('url', '#')})")
+                elif doi:
+                    # PMIDがなくDOIのみの場合
+                    st.markdown(f"**識別子:** DOIのみ")
 
                 # DOI情報とリンク
-                doi = article.get('doi')
                 if doi:
                     # DOIリンク（京大 or 通常）
                     if use_kyoto_links:
@@ -1427,11 +1433,17 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                pmid = article.get('pmid', 'N/A')
-                st.markdown(f"**PMID:** [{pmid}]({article.get('url', '#')})")
+                pmid = article.get('pmid')
+                doi = article.get('doi')
+
+                # PMID表示（ある場合のみ）
+                if pmid:
+                    st.markdown(f"**PMID:** [{pmid}]({article.get('url', '#')})")
+                elif doi:
+                    # PMIDがなくDOIのみの場合
+                    st.markdown(f"**識別子:** DOIのみ")
 
                 # DOI情報とリンク
-                doi = article.get('doi')
                 if doi:
                     # DOIリンク（京大 or 通常）
                     if use_kyoto_links:

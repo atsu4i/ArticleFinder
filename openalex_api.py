@@ -78,6 +78,80 @@ class OpenAlexAPI:
         url = f"{self.BASE_URL}/works/pmid:{pmid}"
         return self._make_request(url)
 
+    def get_work_by_doi(self, doi: str) -> Optional[dict]:
+        """
+        DOIからOpenAlexのwork情報を取得
+
+        Args:
+            doi: DOI (例: "10.1234/abc")
+
+        Returns:
+            work情報（存在しない場合はNone）
+        """
+        # DOIの正規化（https://doi.org/を除去）
+        doi_clean = doi.replace("https://doi.org/", "")
+        url = f"{self.BASE_URL}/works/doi:{doi_clean}"
+        return self._make_request(url)
+
+    def get_article_info_by_doi(self, doi: str) -> Optional[Dict]:
+        """
+        DOIから論文情報を取得（PubMed APIの代替）
+
+        Args:
+            doi: DOI
+
+        Returns:
+            論文情報の辞書（タイトル、著者、年、ジャーナルなど）
+        """
+        work = self.get_work_by_doi(doi)
+
+        if not work:
+            return None
+
+        # 著者情報を整形
+        authors = []
+        authorships = work.get("authorships", [])[:3]  # 最初の3人
+        for authorship in authorships:
+            author = authorship.get("author", {})
+            display_name = author.get("display_name", "")
+            if display_name:
+                authors.append(display_name)
+
+        if len(work.get("authorships", [])) > 3:
+            authors.append("et al.")
+
+        authors_str = ", ".join(authors) if authors else ""
+
+        # 出版年を取得
+        pub_year = work.get("publication_year")
+
+        # ジャーナル名を取得
+        journal = ""
+        primary_location = work.get("primary_location", {})
+        if primary_location:
+            source = primary_location.get("source", {})
+            journal = source.get("display_name", "")
+
+        # アブストラクトを取得（OpenAlexにはない場合が多い）
+        abstract = work.get("abstract", "")
+        if not abstract:
+            abstract = work.get("abstract_inverted_index", "")
+            if abstract:
+                # inverted indexから復元（簡易版）
+                abstract = "[Abstract available in OpenAlex API]"
+
+        return {
+            "pmid": None,  # PMIDなし
+            "doi": doi,
+            "title": work.get("title", ""),
+            "authors": authors_str,
+            "journal": journal,
+            "pub_date": str(pub_year) if pub_year else "",
+            "pub_year": pub_year,
+            "abstract": abstract,
+            "url": f"https://doi.org/{doi}"
+        }
+
     def get_references_by_pmid(self, pmid: str) -> List[Dict[str, Optional[str]]]:
         """
         PMIDから引用文献（References）のリストを取得

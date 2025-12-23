@@ -2,11 +2,13 @@
 """
 DOI実装のテストスクリプト
 OpenAlexからDOI情報が取得できることを確認
+PMIDなし文献の取得も確認
 """
 
 import os
 from openalex_api import OpenAlexAPI
 from pubmed_api import PubMedAPI
+from article_finder import ArticleFinder
 
 def test_openalex_references_with_doi():
     """OpenAlexからReferencesをDOI付きで取得"""
@@ -81,6 +83,46 @@ def test_pubmed_doi_extraction():
     print("\n" + "=" * 60)
 
 
+def test_doi_only_article():
+    """DOIのみの文献情報を取得"""
+    print("\n" + "=" * 60)
+    print("DOIのみの文献情報取得テスト")
+    print("=" * 60)
+
+    # OpenAlex APIを初期化
+    openalex = OpenAlexAPI(os.getenv("OPENALEX_EMAIL"))
+
+    # テスト用DOI（PMIDがない論文）
+    test_doi = "10.1037/1040-3590.11.3.326"
+
+    print(f"\nテストDOI: {test_doi}")
+    print("-" * 60)
+
+    article = openalex.get_article_info_by_doi(test_doi)
+
+    if article:
+        print(f"タイトル: {article.get('title', 'N/A')}")
+        print(f"著者: {article.get('authors', 'N/A')}")
+        print(f"ジャーナル: {article.get('journal', 'N/A')}")
+        print(f"出版年: {article.get('pub_year', 'N/A')}")
+        print(f"PMID: {article.get('pmid', 'N/A')}")
+        print(f"DOI: {article.get('doi', 'N/A')}")
+        print(f"URL: {article.get('url', 'N/A')}")
+
+        # ArticleFinderのget_article_idをテスト
+        article_id = ArticleFinder.get_article_id(article)
+        print(f"\nArticle ID: {article_id}")
+
+        if article_id.startswith("doi:"):
+            print("✅ DOIのみの文献として正しく識別されました")
+        else:
+            print("❌ エラー: Article IDが正しくありません")
+    else:
+        print("❌ 文献情報の取得に失敗")
+
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     # OpenAlexテスト
     references = test_openalex_references_with_doi()
@@ -88,4 +130,7 @@ if __name__ == "__main__":
     # PubMedテスト
     test_pubmed_doi_extraction()
 
-    print("\n✅ テスト完了")
+    # DOIのみの文献テスト
+    test_doi_only_article()
+
+    print("\n✅ 全テスト完了")

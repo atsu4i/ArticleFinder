@@ -208,7 +208,7 @@ class Project:
 
     def has_article(self, pmid: str) -> bool:
         """
-        論文が既に評価済みかチェック
+        論文が既に評価済みかチェック（PMIDベース、互換性のため残す）
 
         Args:
             pmid: PubMed ID
@@ -216,11 +216,12 @@ class Project:
         Returns:
             評価済みの場合True
         """
-        return pmid in self.articles
+        article_id = f"pmid:{pmid}"
+        return article_id in self.articles or pmid in self.articles  # 旧形式も対応
 
     def get_article(self, pmid: str) -> Optional[Dict]:
         """
-        論文情報を取得
+        論文情報を取得（PMIDベース、互換性のため残す）
 
         Args:
             pmid: PubMed ID
@@ -228,26 +229,65 @@ class Project:
         Returns:
             論文情報（存在しない場合None）
         """
-        return self.articles.get(pmid)
+        article_id = f"pmid:{pmid}"
+        # 新形式を優先、なければ旧形式を試す
+        return self.articles.get(article_id) or self.articles.get(pmid)
+
+    def has_article_by_id(self, article_id: str) -> bool:
+        """
+        論文が既に評価済みかチェック（IDベース）
+
+        Args:
+            article_id: Article ID ("pmid:xxx" or "doi:xxx")
+
+        Returns:
+            評価済みの場合True
+        """
+        return article_id in self.articles
+
+    def get_article_by_id(self, article_id: str) -> Optional[Dict]:
+        """
+        論文情報を取得（IDベース）
+
+        Args:
+            article_id: Article ID ("pmid:xxx" or "doi:xxx")
+
+        Returns:
+            論文情報（存在しない場合None）
+        """
+        return self.articles.get(article_id)
 
     def add_article(self, article: Dict):
         """
         論文を追加
 
         Args:
-            article: 論文情報（pmidを含む）
+            article: 論文情報（article_id, pmid または doi を含む）
         """
-        pmid = article.get("pmid")
-        if not pmid:
-            raise ValueError("Article must have 'pmid' field")
+        # Article IDを取得（優先順位: article_id > pmid > doi）
+        article_id = article.get("article_id")
+
+        if not article_id:
+            # article_idがない場合、pmidまたはdoiから生成
+            pmid = article.get("pmid")
+            doi = article.get("doi")
+
+            if pmid:
+                article_id = f"pmid:{pmid}"
+                article["article_id"] = article_id
+            elif doi:
+                article_id = f"doi:{doi}"
+                article["article_id"] = article_id
+            else:
+                raise ValueError("Article must have 'article_id', 'pmid' or 'doi' field")
 
         # search_session_idを配列として管理
         session_id = article.get("search_session_id")
 
         # 既存論文かどうかをチェック
-        if pmid in self.articles:
+        if article_id in self.articles:
             # 既存論文の場合、セッションIDを配列に追加
-            existing_article = self.articles[pmid]
+            existing_article = self.articles[article_id]
             existing_sessions = existing_article.get("search_session_ids", [])
 
             # 文字列形式の古いデータを配列に変換
@@ -276,7 +316,7 @@ class Project:
         # 評価日時を追加
         article["evaluated_at"] = datetime.now().isoformat()
 
-        self.articles[pmid] = article
+        self.articles[article_id] = article
 
         # 統計情報を更新
         self._update_stats()
