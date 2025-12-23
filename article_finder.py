@@ -240,8 +240,9 @@ class ArticleFinder:
                     )
                 raise ValueError(f"起点論文の評価中にエラーが発生しました: {str(e)}")
 
-        collected_articles[start_pmid] = start_article
-        visited_pmids.add(start_pmid)
+        start_article_id = f"pmid:{start_pmid}"
+        collected_articles[start_article_id] = start_article
+        visited_ids.add(start_article_id)
         stats["total_found"] = 1
         if start_article.get("is_relevant"):
             stats["total_relevant"] = 1
@@ -293,7 +294,7 @@ class ArticleFinder:
                 pmids=current_layer,
                 research_theme=research_theme,
                 depth=depth,
-                visited_pmids=visited_pmids,
+                visited_ids=visited_ids,
                 collected_articles=collected_articles,
                 max_articles=max_articles,
                 relevance_threshold=relevance_threshold,
@@ -384,7 +385,7 @@ class ArticleFinder:
         pmids: List[str],
         research_theme: str,
         depth: int,
-        visited_pmids: Set[str],
+        visited_ids: Set[str],
         collected_articles: Dict[str, Dict],
         max_articles: int,
         relevance_threshold: int,
