@@ -96,8 +96,8 @@ class PubMedAPI:
 
         article = result[pmid]
 
-        # アブストラクトを取得するために別途EFetchを呼ぶ
-        abstract = self._fetch_abstract(pmid)
+        # アブストラクトとDOIを取得するために別途EFetchを呼ぶ
+        abstract, doi = self._fetch_abstract_and_doi(pmid)
 
         return {
             "pmid": pmid,
@@ -107,11 +107,16 @@ class PubMedAPI:
             "pub_date": article.get("pubdate", ""),
             "pub_year": self._extract_year(article.get("pubdate", "")),
             "abstract": abstract,
+            "doi": doi,
             "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
         }
 
-    def _fetch_abstract(self, pmid: str) -> str:
-        """アブストラクトを取得（XML形式で確実に取得）"""
+    def _fetch_abstract_and_doi(self, pmid: str) -> tuple:
+        """アブストラクトとDOIを取得（XML形式で確実に取得）
+
+        Returns:
+            tuple: (abstract, doi) - DOIがない場合はNone
+        """
         params = {
             "db": "pubmed",
             "id": pmid,
@@ -130,6 +135,9 @@ class PubMedAPI:
             # <AbstractText>タグの内容を抽出
             import re
 
+            abstract = ""
+            doi = None
+
             # 複数のAbstractTextタグがある場合もあるので、すべて取得
             abstract_matches = re.findall(r'<AbstractText[^>]*>(.*?)</AbstractText>', xml_text, re.DOTALL)
 
@@ -141,26 +149,31 @@ class PubMedAPI:
                 abstract = abstract.replace('&amp;', '&').replace('&quot;', '"')
                 # 余分な空白を削除
                 abstract = ' '.join(abstract.split())
-                return abstract
+            else:
+                # AbstractTextが見つからない場合、OtherAbstractタグも試す
+                other_abstract_matches = re.findall(r'<OtherAbstract[^>]*>(.*?)</OtherAbstract>', xml_text, re.DOTALL)
+                if other_abstract_matches:
+                    # OtherAbstract内のAbstractTextを探す
+                    for other_abstract in other_abstract_matches:
+                        texts = re.findall(r'<AbstractText[^>]*>(.*?)</AbstractText>', other_abstract, re.DOTALL)
+                        if texts:
+                            abstract = ' '.join(texts)
+                            abstract = abstract.replace('&lt;', '<').replace('&gt;', '>')
+                            abstract = abstract.replace('&amp;', '&').replace('&quot;', '"')
+                            abstract = ' '.join(abstract.split())
+                            break
 
-            # AbstractTextが見つからない場合、OtherAbstractタグも試す
-            other_abstract_matches = re.findall(r'<OtherAbstract[^>]*>(.*?)</OtherAbstract>', xml_text, re.DOTALL)
-            if other_abstract_matches:
-                # OtherAbstract内のAbstractTextを探す
-                for other_abstract in other_abstract_matches:
-                    texts = re.findall(r'<AbstractText[^>]*>(.*?)</AbstractText>', other_abstract, re.DOTALL)
-                    if texts:
-                        abstract = ' '.join(texts)
-                        abstract = abstract.replace('&lt;', '<').replace('&gt;', '>')
-                        abstract = abstract.replace('&amp;', '&').replace('&quot;', '"')
-                        abstract = ' '.join(abstract.split())
-                        return abstract
+            # DOIを抽出
+            # <ELocationID EIdType="doi">10.1234/abc</ELocationID>
+            doi_match = re.search(r'<ELocationID\s+EIdType="doi"[^>]*>([^<]+)</ELocationID>', xml_text)
+            if doi_match:
+                doi = doi_match.group(1).strip()
 
-            return ""
+            return abstract, doi
 
         except Exception as e:
-            print(f"Failed to fetch abstract for PMID {pmid}: {e}")
-            return ""
+            print(f"Failed to fetch abstract and DOI for PMID {pmid}: {e}")
+            return "", None
 
     def _format_authors(self, authors: List[Dict]) -> str:
         """著者リストをフォーマット"""

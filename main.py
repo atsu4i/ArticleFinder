@@ -192,6 +192,17 @@ def main():
 
         st.divider()
 
+        # 京大リンク設定
+        st.subheader("リンク設定")
+
+        use_kyoto_links = st.checkbox(
+            "京都大学のリンクを使用",
+            value=os.getenv("USE_KYOTO_UNIVERSITY_LINKS", "false").lower() == "true",
+            help="京都大学のプロキシを経由してDOIリンクにアクセスします。京大アカウントでログインしている場合、論文PDFに直接アクセスできます。"
+        )
+
+        st.divider()
+
         # プロジェクト選択
         st.subheader("📁 プロジェクト")
 
@@ -462,7 +473,8 @@ def main():
                 include_references=include_references,
                 max_references=max_references,
                 notion_api_key=notion_api_key if use_notion else None,
-                notion_database_id=notion_database_id if use_notion else None
+                notion_database_id=notion_database_id if use_notion else None,
+                use_kyoto_links=use_kyoto_links
             )
 
     # 実行ボタン
@@ -528,7 +540,7 @@ def main():
 
     # 検索結果がsession_stateにある場合は表示
     elif 'search_result' in st.session_state and 'current_project' in st.session_state:
-        display_results(st.session_state['search_result'], st.session_state['current_project'])
+        display_results(st.session_state['search_result'], st.session_state['current_project'], use_kyoto_links)
 
 
 def display_project_articles(
@@ -547,7 +559,8 @@ def display_project_articles(
     include_references: bool,
     max_references: int,
     notion_api_key: Optional[str] = None,
-    notion_database_id: Optional[str] = None
+    notion_database_id: Optional[str] = None,
+    use_kyoto_links: bool = False
 ):
     """プロジェクト内の論文を表示"""
     articles = project.get_all_articles()
@@ -966,8 +979,22 @@ def display_project_articles(
                 pmid = article.get('pmid', 'N/A')
                 st.markdown(f"**PMID:** [{pmid}]({article.get('url', '#')})")
 
-                # 京都大学図書館Article Linkerへのリンク
-                if pmid != 'N/A':
+                # DOI情報とリンク
+                doi = article.get('doi')
+                if doi:
+                    # DOIリンク（京大 or 通常）
+                    if use_kyoto_links:
+                        doi_url = f"https://doi-org.kyoto-u.idm.oclc.org/{doi}"
+                        st.markdown(f"**DOI:** [🔗 {doi}]({doi_url}) (京大プロキシ)")
+                    else:
+                        doi_url = f"https://doi.org/{doi}"
+                        st.markdown(f"**DOI:** [🔗 {doi}]({doi_url})")
+
+                    # 京都大学図書館Article Linkerへのリンク（DOIベース）
+                    ku_linker_url = f"https://tt2mx4dc7s.search.serialssolutions.com/?sid=Entrez:PubMed&id=doi:{doi}"
+                    st.markdown(f"**📚 京大図書館:** [Article Linker]({ku_linker_url})")
+                elif pmid != 'N/A':
+                    # DOIがない場合はPMIDベースのArticle Linker
                     ku_linker_url = f"https://tt2mx4dc7s.search.serialssolutions.com/?sid=Entrez:PubMed&id=pmid:{pmid}"
                     st.markdown(f"**📚 京大図書館:** [Article Linker]({ku_linker_url})")
 
@@ -1219,8 +1246,14 @@ def run_search(
         st.session_state['stop_search'] = False
 
 
-def display_results(result: dict, project=None):
-    """検索結果を表示"""
+def display_results(result: dict, project=None, use_kyoto_links: bool = False):
+    """検索結果を表示
+
+    Args:
+        result: 検索結果の辞書
+        project: プロジェクト（オプション）
+        use_kyoto_links: 京大リンクを使用するか
+    """
 
     articles = result["articles"]
     stats = result["stats"]
@@ -1397,8 +1430,22 @@ def display_results(result: dict, project=None):
                 pmid = article.get('pmid', 'N/A')
                 st.markdown(f"**PMID:** [{pmid}]({article.get('url', '#')})")
 
-                # 京都大学図書館Article Linkerへのリンク
-                if pmid != 'N/A':
+                # DOI情報とリンク
+                doi = article.get('doi')
+                if doi:
+                    # DOIリンク（京大 or 通常）
+                    if use_kyoto_links:
+                        doi_url = f"https://doi-org.kyoto-u.idm.oclc.org/{doi}"
+                        st.markdown(f"**DOI:** [🔗 {doi}]({doi_url}) (京大プロキシ)")
+                    else:
+                        doi_url = f"https://doi.org/{doi}"
+                        st.markdown(f"**DOI:** [🔗 {doi}]({doi_url})")
+
+                    # 京都大学図書館Article Linkerへのリンク（DOIベース）
+                    ku_linker_url = f"https://tt2mx4dc7s.search.serialssolutions.com/?sid=Entrez:PubMed&id=doi:{doi}"
+                    st.markdown(f"**📚 京大図書館:** [Article Linker]({ku_linker_url})")
+                elif pmid != 'N/A':
+                    # DOIがない場合はPMIDベースのArticle Linker
                     ku_linker_url = f"https://tt2mx4dc7s.search.serialssolutions.com/?sid=Entrez:PubMed&id=pmid:{pmid}"
                     st.markdown(f"**📚 京大図書館:** [Article Linker]({ku_linker_url})")
 

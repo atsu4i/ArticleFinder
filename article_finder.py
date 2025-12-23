@@ -397,49 +397,57 @@ class ArticleFinder:
             )
 
             # 関連論文を取得（ソース情報も含む）
+            # 関連論文のリスト: (pmid, source_type, doi) のタプルのリスト
+            # doiはOpenAlexから取得した場合のみ設定される（それ以外はNone）
             related_pmids_with_source = []
 
             print(f"  [DEBUG] 関連論文取得開始")
             if include_similar:
                 similar = self.pubmed.get_related_articles(pmid, "similar")
                 # 制限数まで切り詰め
-                related_pmids_with_source.extend([(p, "similar") for p in similar[:max_similar]])
+                related_pmids_with_source.extend([(p, "similar", None) for p in similar[:max_similar]])
                 print(f"    Similar articles: {len(similar)} 件中 {len(similar[:max_similar])} 件取得")
                 self._notify_progress(progress_callback, f"  Similar articles: {len(similar[:max_similar])} 件取得")
 
             if include_cited_by:
                 cited_by = self.pubmed.get_related_articles(pmid, "cited_by")
                 # 制限数まで切り詰め
-                related_pmids_with_source.extend([(p, "cited_by") for p in cited_by[:max_cited_by]])
+                related_pmids_with_source.extend([(p, "cited_by", None) for p in cited_by[:max_cited_by]])
                 print(f"    Cited by: {len(cited_by)} 件中 {len(cited_by[:max_cited_by])} 件取得")
                 self._notify_progress(progress_callback, f"  Cited by: {len(cited_by[:max_cited_by])} 件取得")
 
             if include_references:
-                # OpenAlexからReferencesを取得
+                # OpenAlexからReferencesを取得（DOIがある全ての文献）
                 references = self.openalex.get_references_by_pmid(pmid)
+                # PMIDがある文献のみを抽出（PMIDがない文献は現バージョンでは未対応）
+                references_with_pmid = [ref for ref in references if ref.get("pmid")]
                 # 制限数まで切り詰め
-                related_pmids_with_source.extend([(p, "references") for p in references[:max_references]])
-                print(f"    References (OpenAlex): {len(references)} 件中 {len(references[:max_references])} 件取得")
-                self._notify_progress(progress_callback, f"  References: {len(references[:max_references])} 件取得")
+                # Note: DOI情報は後でPubMed APIから取得した論文情報に付与される
+                related_pmids_with_source.extend([
+                    (ref["pmid"], "references", ref.get("doi"))
+                    for ref in references_with_pmid[:max_references]
+                ])
+                print(f"    References (OpenAlex): {len(references)} 件中 {len(references_with_pmid[:max_references])} 件取得 (PMID有り)")
+                self._notify_progress(progress_callback, f"  References: {len(references_with_pmid[:max_references])} 件取得")
 
             print(f"  [DEBUG] 合計 {len(related_pmids_with_source)} 件の関連論文を取得")
 
             # 重複削除（同じPMIDでもソースが異なる場合、最初のもののみ保持）
             seen_pmids = set()
             unique_related = []
-            for p, source_type in related_pmids_with_source:
+            for p, source_type, doi in related_pmids_with_source:
                 if p not in seen_pmids:
                     seen_pmids.add(p)
-                    unique_related.append((p, source_type))
+                    unique_related.append((p, source_type, doi))
 
             related_pmids_with_source = unique_related
 
             # 未訪問の論文のみ処理
-            new_pmids_with_source = [(p, source_type) for p, source_type in related_pmids_with_source if p not in visited_pmids]
+            new_pmids_with_source = [(p, source_type, doi) for p, source_type, doi in related_pmids_with_source if p not in visited_pmids]
 
             print(f"  [DEBUG] 未訪問の論文: {len(new_pmids_with_source)} 件")
             if len(new_pmids_with_source) > 0:
-                print(f"    最初の5件: {[p for p, _ in new_pmids_with_source[:5]]}")
+                print(f"    最初の5件: {[p for p, _, _ in new_pmids_with_source[:5]]}")
 
             self._notify_progress(
                 progress_callback,
@@ -449,7 +457,7 @@ class ArticleFinder:
             stats["total_found"] += len(new_pmids_with_source)
 
             # 各論文を取得・評価
-            for new_pmid, source_type in new_pmids_with_source:
+            for new_pmid, source_type, openalex_doi in new_pmids_with_source:
                 # 停止チェック
                 if should_stop_callback and should_stop_callback():
                     self._notify_progress(progress_callback, "停止リクエストを受け付けました")
@@ -472,6 +480,10 @@ class ArticleFinder:
                     score = article.get("relevance_score", 0)
                     article["is_relevant"] = score >= relevance_threshold
 
+                    # DOI情報を補完（OpenAlexから取得したDOIがあり、キャッシュにDOIがない場合）
+                    if openalex_doi and not article.get("doi"):
+                        article["doi"] = openalex_doi
+
                     # ソース情報を追加（キャッシュにない場合のみ）
                     if "source_pmid" not in article:
                         article["source_pmid"] = pmid
@@ -487,6 +499,10 @@ class ArticleFinder:
                     article = self.pubmed.get_article_info(new_pmid)
                     if not article:
                         continue
+
+                    # DOI情報を補完（OpenAlexから取得したDOIがあり、PubMedのDOIがない場合）
+                    if openalex_doi and not article.get("doi"):
+                        article["doi"] = openalex_doi
 
                     # 年フィルタ
                     if year_from and article.get("pub_year"):

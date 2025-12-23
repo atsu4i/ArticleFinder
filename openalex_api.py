@@ -6,7 +6,7 @@ PMIDから引用文献（References）を取得
 import os
 import time
 import requests
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 
 class OpenAlexAPI:
@@ -78,15 +78,17 @@ class OpenAlexAPI:
         url = f"{self.BASE_URL}/works/pmid:{pmid}"
         return self._make_request(url)
 
-    def get_references_by_pmid(self, pmid: str) -> List[str]:
+    def get_references_by_pmid(self, pmid: str) -> List[Dict[str, Optional[str]]]:
         """
-        PMIDから引用文献（References）のPMIDリストを取得
+        PMIDから引用文献（References）のリストを取得
 
         Args:
             pmid: PubMed ID
 
         Returns:
-            引用文献のPMIDリスト（PubMedに登録されている論文のみ）
+            引用文献のリスト（DOIがある全ての文献）
+            各要素は {"pmid": "...", "doi": "..."} の辞書
+            PMIDがない場合はNone、DOIがない場合は除外
         """
         work = self.get_work_by_pmid(pmid)
 
@@ -99,9 +101,9 @@ class OpenAlexAPI:
         if not referenced_works:
             return []
 
-        # OpenAlex IDからPMIDを抽出
+        # OpenAlex IDからPMIDとDOIを抽出
         # referenced_worksはOpenAlex IDのリスト（例: "https://openalex.org/W2741809807"）
-        pmids = []
+        references = []
 
         # バッチで取得（効率化）
         # 最大50件ずつ取得
@@ -125,18 +127,36 @@ class OpenAlexAPI:
             if not response or "results" not in response:
                 continue
 
-            # PMIDを抽出
+            # PMIDとDOIを抽出
             for result in response["results"]:
                 ids = result.get("ids", {})
+
+                # DOIを取得（必須）
+                doi_value = ids.get("doi")
+                if not doi_value:
+                    # DOIがない文献はスキップ
+                    continue
+
+                # DOI URLから DOI を抽出（例: "https://doi.org/10.1234/abc" -> "10.1234/abc"）
+                if isinstance(doi_value, str):
+                    doi_extracted = doi_value.replace("https://doi.org/", "")
+                else:
+                    continue
+
+                # PMIDを取得（オプション）
                 pmid_value = ids.get("pmid")
+                pmid_extracted = None
 
-                if pmid_value:
+                if pmid_value and isinstance(pmid_value, str):
                     # URLからPMIDを抽出（例: "https://pubmed.ncbi.nlm.nih.gov/12345678/" -> "12345678"）
-                    if isinstance(pmid_value, str):
-                        pmid_extracted = pmid_value.rstrip("/").split("/")[-1]
-                        pmids.append(pmid_extracted)
+                    pmid_extracted = pmid_value.rstrip("/").split("/")[-1]
 
-        return pmids
+                references.append({
+                    "pmid": pmid_extracted,
+                    "doi": doi_extracted
+                })
+
+        return references
 
     def get_cited_by_pmids(self, pmid: str, limit: int = 100) -> List[str]:
         """
