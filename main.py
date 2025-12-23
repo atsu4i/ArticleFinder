@@ -1156,12 +1156,16 @@ def run_search(
         return st.session_state.get('stop_search', False)
 
     try:
+        # OpenAlexメールアドレスを環境変数から取得
+        openalex_email = os.environ.get("OPENALEX_EMAIL")
+
         # ArticleFinderを初期化
         finder = ArticleFinder(
             gemini_api_key=api_key,
             gemini_model=gemini_model,
             notion_api_key=notion_api_key,
-            notion_database_id=notion_database_id
+            notion_database_id=notion_database_id,
+            openalex_email=openalex_email
         )
 
         # 停止ボタンを表示

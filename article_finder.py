@@ -8,6 +8,7 @@ from typing import Dict, List, Callable, Optional, Set
 from pubmed_api import PubMedAPI
 from gemini_evaluator import GeminiEvaluator
 from project_manager import Project
+from openalex_api import OpenAlexAPI
 
 
 class ArticleFinder:
@@ -18,7 +19,8 @@ class ArticleFinder:
         gemini_api_key: Optional[str] = None,
         gemini_model: Optional[str] = None,
         notion_api_key: Optional[str] = None,
-        notion_database_id: Optional[str] = None
+        notion_database_id: Optional[str] = None,
+        openalex_email: Optional[str] = None
     ):
         """
         Args:
@@ -26,9 +28,11 @@ class ArticleFinder:
             gemini_model: 使用するGeminiモデル名（省略時はデフォルトモデル）
             notion_api_key: Notion API Key（省略時は環境変数から取得、未設定の場合Notion連携は無効）
             notion_database_id: Notion Database ID（省略時は環境変数から取得）
+            openalex_email: OpenAlex Polite pool用メールアドレス（省略時は環境変数から取得）
         """
         self.pubmed = PubMedAPI()
         self.evaluator = GeminiEvaluator(gemini_api_key, gemini_model)
+        self.openalex = OpenAlexAPI(openalex_email)
 
         # Notion APIを初期化（オプション）
         self.notion = None
@@ -411,10 +415,11 @@ class ArticleFinder:
                 self._notify_progress(progress_callback, f"  Cited by: {len(cited_by[:max_cited_by])} 件取得")
 
             if include_references:
-                references = self.pubmed.get_related_articles(pmid, "references")
+                # OpenAlexからReferencesを取得
+                references = self.openalex.get_references_by_pmid(pmid)
                 # 制限数まで切り詰め
                 related_pmids_with_source.extend([(p, "references") for p in references[:max_references]])
-                print(f"    References: {len(references)} 件中 {len(references[:max_references])} 件取得")
+                print(f"    References (OpenAlex): {len(references)} 件中 {len(references[:max_references])} 件取得")
                 self._notify_progress(progress_callback, f"  References: {len(references[:max_references])} 件取得")
 
             print(f"  [DEBUG] 合計 {len(related_pmids_with_source)} 件の関連論文を取得")

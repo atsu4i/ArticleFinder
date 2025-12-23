@@ -128,6 +128,21 @@ NOTION_DATABASE_ID=your_database_id_here
 - `Project Scores`: テキスト型（プロジェクトごとのスコア履歴を保存）
   - 形式例: `プロジェクトA: 60点 (2024-01-15)`
 
+#### 5. OpenAlexの設定（オプション、推奨）
+
+OpenAlex APIを使ってReferences（引用文献）を取得します。メールアドレスを設定することで、**検索速度が10倍向上**します。
+
+```bash
+# .envファイルに追加
+OPENALEX_EMAIL=your_email@example.com
+```
+
+**設定のメリット**：
+- メールアドレス設定なし: 1リクエスト/秒
+- メールアドレス設定あり: **10リクエスト/秒**（Polite pool）
+
+詳細: [OpenAlex Rate Limits](https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication)
+
 ## 📖 使い方
 
 ### アプリケーションの起動
@@ -260,6 +275,7 @@ AriticleFinder/
 ├── main.py                 # Streamlit WebGUI
 ├── article_finder.py       # 論文探索メインロジック
 ├── pubmed_api.py          # PubMed API連携
+├── openalex_api.py        # OpenAlex API連携（References取得）
 ├── gemini_evaluator.py    # Gemini AI評価
 ├── notion_api.py          # Notion API連携
 ├── project_manager.py     # プロジェクト管理
@@ -296,11 +312,23 @@ AriticleFinder/
 
 - **ESummary**: 論文のメタデータ取得
 - **EFetch**: アブストラクト取得
-- **ELink**: 関連論文・引用論文・引用文献のリンク取得
+- **ELink**: 関連論文・引用論文のリンク取得
   - **Similar articles**: 類似論文
   - **Cited by**: この論文を引用している論文
-  - **References**: この論文が引用している文献
 - レート制限: 1秒に3リクエストまで（自動調整）
+
+### OpenAlex API
+
+- **References（引用文献）の取得**: PubMedよりも網羅的な引用データを提供
+- **メリット**:
+  - PubMedに登録されていない多くの論文のReferencesデータも含む
+  - 無料で利用可能（API Key不要）
+  - Polite pool（メールアドレス提供）で10倍高速化
+- **レート制限**:
+  - デフォルト: 1リクエスト/秒
+  - Polite pool: **10リクエスト/秒**
+  - 日次制限: 100,000リクエスト
+- 詳細: [OpenAlex Documentation](https://docs.openalex.org/)
 
 ### Gemini API
 
