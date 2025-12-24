@@ -236,16 +236,97 @@ class OpenAlexAPI:
 
         return references
 
-    def get_cited_by_pmids(self, pmid: str, limit: int = 100) -> List[str]:
+    def get_references_by_doi(self, doi: str) -> List[Dict[str, Optional[str]]]:
         """
-        PMIDを引用している論文（Cited by）のPMIDリストを取得
+        DOIから引用文献（References）のリストを取得
+
+        Args:
+            doi: DOI
+
+        Returns:
+            引用文献のリスト（DOIがある全ての文献）
+            各要素は {"pmid": "...", "doi": "..."} の辞書
+            PMIDがない場合はNone、DOIがない場合は除外
+        """
+        work = self.get_work_by_doi(doi)
+
+        if not work:
+            return []
+
+        # referenced_worksを取得
+        referenced_works = work.get("referenced_works", [])
+
+        if not referenced_works:
+            return []
+
+        # OpenAlex IDからPMIDとDOIを抽出
+        references = []
+
+        # バッチで取得（効率化）
+        batch_size = 50
+        for i in range(0, len(referenced_works), batch_size):
+            batch = referenced_works[i:i + batch_size]
+
+            # OpenAlex IDをパイプ区切りで結合
+            openalex_ids = "|".join([work_id.split("/")[-1] for work_id in batch])
+
+            # バッチで取得
+            url = f"{self.BASE_URL}/works"
+            params = {
+                "filter": f"openalex_id:{openalex_ids}",
+                "select": "ids"
+            }
+
+            response = self._make_request(url, params)
+
+            if not response or "results" not in response:
+                continue
+
+            # PMIDとDOIを抽出
+            for result in response["results"]:
+                ids = result.get("ids") or {}
+                if not ids:
+                    continue
+
+                # DOIを取得（必須）
+                doi_value = ids.get("doi")
+                if not doi_value:
+                    # DOIがない文献はスキップ
+                    continue
+
+                # DOI URLから DOI を抽出
+                if isinstance(doi_value, str):
+                    doi_extracted = doi_value.replace("https://doi.org/", "")
+                else:
+                    continue
+
+                # PMIDを取得（オプション）
+                pmid_value = ids.get("pmid")
+                pmid_extracted = None
+
+                if pmid_value and isinstance(pmid_value, str):
+                    # URLからPMIDを抽出
+                    pmid_extracted = pmid_value.rstrip("/").split("/")[-1]
+
+                references.append({
+                    "pmid": pmid_extracted,
+                    "doi": doi_extracted
+                })
+
+        return references
+
+    def get_cited_by_by_pmid(self, pmid: str, limit: int = 100) -> List[Dict[str, Optional[str]]]:
+        """
+        PMIDを引用している論文（Cited by）のリストを取得
 
         Args:
             pmid: PubMed ID
             limit: 最大取得数
 
         Returns:
-            引用論文のPMIDリスト（PubMedに登録されている論文のみ）
+            引用論文のリスト（DOIがある全ての文献）
+            各要素は {"pmid": "...", "doi": "..."} の辞書
+            PMIDがない場合はNone、DOIがない場合は除外
         """
         # OpenAlex work IDを取得
         work = self.get_work_by_pmid(pmid)
@@ -271,19 +352,107 @@ class OpenAlexAPI:
         if not response or "results" not in response:
             return []
 
-        # PMIDを抽出
-        pmids = []
+        # PMIDとDOIを抽出
+        cited_by = []
         for result in response["results"]:
             ids = result.get("ids") or {}
             if not ids:
                 continue
 
+            # DOIを取得（必須）
+            doi_value = ids.get("doi")
+            if not doi_value:
+                # DOIがない文献はスキップ
+                continue
+
+            # DOI URLから DOI を抽出（例: "https://doi.org/10.1234/abc" -> "10.1234/abc"）
+            if isinstance(doi_value, str):
+                doi_extracted = doi_value.replace("https://doi.org/", "")
+            else:
+                continue
+
+            # PMIDを取得（オプション）
             pmid_value = ids.get("pmid")
+            pmid_extracted = None
 
-            if pmid_value:
+            if pmid_value and isinstance(pmid_value, str):
+                # URLからPMIDを抽出（例: "https://pubmed.ncbi.nlm.nih.gov/12345678/" -> "12345678"）
+                pmid_extracted = pmid_value.rstrip("/").split("/")[-1]
+
+            cited_by.append({
+                "pmid": pmid_extracted,
+                "doi": doi_extracted
+            })
+
+        return cited_by[:limit]
+
+    def get_cited_by_by_doi(self, doi: str, limit: int = 100) -> List[Dict[str, Optional[str]]]:
+        """
+        DOIを引用している論文（Cited by）のリストを取得
+
+        Args:
+            doi: DOI
+            limit: 最大取得数
+
+        Returns:
+            引用論文のリスト（DOIがある全ての文献）
+            各要素は {"pmid": "...", "doi": "..."} の辞書
+            PMIDがない場合はNone、DOIがない場合は除外
+        """
+        # OpenAlex work IDを取得
+        work = self.get_work_by_doi(doi)
+
+        if not work:
+            return []
+
+        work_id = work.get("id", "").split("/")[-1]  # 例: "W2741809807"
+
+        if not work_id:
+            return []
+
+        # cited_byで検索
+        url = f"{self.BASE_URL}/works"
+        params = {
+            "filter": f"cites:{work_id}",
+            "select": "ids",
+            "per-page": min(limit, 200)  # OpenAlexの最大は200
+        }
+
+        response = self._make_request(url, params)
+
+        if not response or "results" not in response:
+            return []
+
+        # PMIDとDOIを抽出
+        cited_by = []
+        for result in response["results"]:
+            ids = result.get("ids") or {}
+            if not ids:
+                continue
+
+            # DOIを取得（必須）
+            doi_value = ids.get("doi")
+            if not doi_value:
+                # DOIがない文献はスキップ
+                continue
+
+            # DOI URLから DOI を抽出
+            if isinstance(doi_value, str):
+                doi_extracted = doi_value.replace("https://doi.org/", "")
+            else:
+                continue
+
+            # PMIDを取得（オプション）
+            pmid_value = ids.get("pmid")
+            pmid_extracted = None
+
+            if pmid_value and isinstance(pmid_value, str):
                 # URLからPMIDを抽出
-                if isinstance(pmid_value, str):
-                    pmid_extracted = pmid_value.rstrip("/").split("/")[-1]
-                    pmids.append(pmid_extracted)
+                pmid_extracted = pmid_value.rstrip("/").split("/")[-1]
 
-        return pmids[:limit]
+            cited_by.append({
+                "pmid": pmid_extracted,
+                "doi": doi_extracted
+            })
+
+        return cited_by[:limit]

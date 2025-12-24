@@ -6,10 +6,13 @@ import streamlit as st
 import json
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
 from article_finder import ArticleFinder
 from project_manager import ProjectManager
 from gemini_evaluator import GeminiEvaluator
+from pyvis.network import Network
+import streamlit.components.v1 as components
+import tempfile
 
 
 def save_api_key_to_env(api_key: str) -> bool:
@@ -90,6 +93,138 @@ def is_valid_api_key(api_key: str) -> bool:
         return False
 
     return True
+
+
+def generate_network_graph(articles: List[Dict]) -> str:
+    """
+    論文のネットワークグラフを生成
+
+    Args:
+        articles: 論文リスト
+
+    Returns:
+        生成されたHTMLファイルのパス
+    """
+    # PyVisネットワークを作成
+    net = Network(
+        height="600px",
+        width="100%",
+        bgcolor="#ffffff",
+        font_color="#000000",
+        directed=True
+    )
+
+    # ノードとエッジのデータを準備
+    article_dict = {a["article_id"]: a for a in articles}
+
+    # 被リンク数の最大値を取得（ノードサイズ正規化用）
+    max_link_count = max([len(a.get("mentioned_by", [])) for a in articles]) if articles else 1
+    if max_link_count == 0:
+        max_link_count = 1
+
+    # 各論文をノードとして追加
+    for article in articles:
+        article_id = article["article_id"]
+        title = article.get("title", "不明なタイトル")
+        relevance_score = article.get("relevance_score", 0)
+        mentioned_by = article.get("mentioned_by", [])
+        link_count = len(mentioned_by)
+
+        # ノードサイズ: 被リンク数に比例（最小10、最大50）
+        base_size = 10
+        max_size = 50
+        if max_link_count > 0:
+            node_size = base_size + (link_count / max_link_count) * (max_size - base_size)
+        else:
+            node_size = base_size
+
+        # ノードの色: relevance_scoreでヒートマップ化
+        # 赤(高スコア) → 黄 → 青(低スコア)
+        if relevance_score >= 70:
+            # 70-100: 赤系
+            intensity = int(255 * (100 - relevance_score) / 30)
+            color = f"rgb(255, {intensity}, {intensity})"
+        elif relevance_score >= 40:
+            # 40-69: 黄系
+            intensity = int(255 * (relevance_score - 40) / 30)
+            color = f"rgb(255, 255, {255 - intensity})"
+        else:
+            # 0-39: 青系
+            intensity = int(255 * (40 - relevance_score) / 40)
+            color = f"rgb({255 - intensity}, {255 - intensity}, 255)"
+
+        # PMID/DOIを取得
+        pmid = article.get("pmid", "")
+        doi = article.get("doi", "")
+        display_id = f"PMID:{pmid}" if pmid else f"DOI:{doi}"
+
+        # ホバー時のラベル
+        label = f"{display_id}\nScore: {relevance_score}\nLinks: {link_count}"
+        hover_title = f"{title}\n{label}"
+
+        # ノードを追加
+        net.add_node(
+            article_id,
+            label=display_id,
+            title=hover_title,
+            size=node_size,
+            color=color,
+            font={"size": 12}
+        )
+
+    # エッジを追加（親 → 子）
+    for article in articles:
+        article_id = article["article_id"]
+        mentioned_by = article.get("mentioned_by", [])
+
+        # この論文を参照している親論文からエッジを引く
+        for parent_id in mentioned_by:
+            # 親論文がフィルタ後のリストに存在する場合のみエッジを追加
+            if parent_id in article_dict:
+                net.add_edge(parent_id, article_id)
+
+    # 物理演算の設定
+    net.set_options("""
+    {
+        "physics": {
+            "enabled": true,
+            "barnesHut": {
+                "gravitationalConstant": -8000,
+                "centralGravity": 0.3,
+                "springLength": 95,
+                "springConstant": 0.04
+            },
+            "stabilization": {
+                "iterations": 150
+            }
+        },
+        "edges": {
+            "arrows": {
+                "to": {
+                    "enabled": true,
+                    "scaleFactor": 0.5
+                }
+            },
+            "color": {
+                "color": "#848484",
+                "highlight": "#000000"
+            },
+            "smooth": {
+                "type": "continuous"
+            }
+        },
+        "interaction": {
+            "hover": true,
+            "navigationButtons": true,
+            "keyboard": true
+        }
+    }
+    """)
+
+    # 一時ファイルとして保存
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8') as f:
+        net.save_graph(f.name)
+        return f.name
 
 
 def main():
@@ -246,6 +381,16 @@ def main():
             try:
                 project = pm.load_project(selected_project_name)
                 st.success(f"✅ プロジェクトを読み込みました")
+
+                # 未完了の検索があるかチェック
+                if project.has_search_state():
+                    saved_state = project.load_search_state()
+                    if saved_state:
+                        saved_at = saved_state.get('saved_at', '不明')
+                        st.warning(
+                            f"⚠️ 前回の検索が中断されています（保存日時: {saved_at[:19]}）\n\n"
+                            f"新しい検索を開始すると、評価済み論文は自動的にスキップされます。"
+                        )
 
                 # プロジェクト情報を表示
                 st.info(
@@ -426,6 +571,12 @@ def main():
                 step=1
             )
 
+        pubmed_only = st.checkbox(
+            "PubMed収録論文のみを対象",
+            value=False,
+            help="有効にすると、PMIDがない論文（DOIのみの論文）を除外します"
+        )
+
     # メインエリア
     col1, col2 = st.columns([1, 1])
 
@@ -472,6 +623,7 @@ def main():
                 max_cited_by=max_cited_by,
                 include_references=include_references,
                 max_references=max_references,
+                pubmed_only=pubmed_only,
                 notion_api_key=notion_api_key if use_notion else None,
                 notion_database_id=notion_database_id if use_notion else None,
                 use_kyoto_links=use_kyoto_links
@@ -533,6 +685,7 @@ def main():
             max_cited_by=max_cited_by,
             include_references=include_references,
             max_references=max_references,
+            pubmed_only=pubmed_only,
             project=project,
             notion_api_key=notion_api_key if use_notion else None,
             notion_database_id=notion_database_id if use_notion else None
@@ -558,6 +711,7 @@ def display_project_articles(
     max_cited_by: int,
     include_references: bool,
     max_references: int,
+    pubmed_only: bool,
     notion_api_key: Optional[str] = None,
     notion_database_id: Optional[str] = None,
     use_kyoto_links: bool = False
@@ -704,7 +858,7 @@ def display_project_articles(
     # フィルタ
     st.subheader("🔍 論文フィルタ")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         # 検索セッションフィルタ
@@ -746,6 +900,12 @@ def display_project_articles(
             key="project_filter_not_in_notion",
             help="Notionデータベースに未登録の論文のみ表示"
         )
+        show_pubmed_only = st.checkbox(
+            "PubMed掲載論文のみ",
+            value=False,
+            key="project_filter_pubmed_only",
+            help="PMIDがある論文のみ表示（DOIのみの論文を除外）"
+        )
 
     with col3:
         # セッション状態の初期化
@@ -777,6 +937,18 @@ def display_project_articles(
 
         min_score_filter = st.session_state.filter_project_slider
 
+    with col4:
+        # 最小被リンク数フィルタ
+        min_link_count = st.number_input(
+            "最小被リンク数",
+            min_value=0,
+            max_value=100,
+            value=0,
+            step=1,
+            key="project_min_link_count",
+            help="引用・類似を問わず、他の論文から検出された回数の最小値"
+        )
+
     # 論文リストをフィルタ
     filtered_articles = articles
 
@@ -789,6 +961,12 @@ def display_project_articles(
 
     if show_not_in_notion:
         filtered_articles = [a for a in filtered_articles if not a.get("in_notion", False)]
+
+    if show_pubmed_only:
+        filtered_articles = [a for a in filtered_articles if a.get("pmid") is not None]
+
+    if min_link_count > 0:
+        filtered_articles = [a for a in filtered_articles if len(a.get("mentioned_by", [])) >= min_link_count]
 
     filtered_articles = [
         a for a in filtered_articles
@@ -811,6 +989,32 @@ def display_project_articles(
         st.session_state.project_page = 1
 
     st.info(f"表示件数: {len(filtered_articles)} / {len(articles)}")
+
+    # ネットワークグラフ表示
+    if filtered_articles:
+        with st.expander("🕸️ ネットワークグラフを表示", expanded=False):
+            st.info("ノードの大きさ = 被リンク数、ノードの色 = 関連性スコア（赤=高、青=低）")
+
+            try:
+                # グラフを生成
+                graph_html_path = generate_network_graph(filtered_articles)
+
+                # HTMLファイルを読み込んで表示
+                with open(graph_html_path, 'r', encoding='utf-8') as f:
+                    graph_html = f.read()
+
+                components.html(graph_html, height=620, scrolling=True)
+
+                # 一時ファイルを削除
+                try:
+                    os.unlink(graph_html_path)
+                except:
+                    pass
+
+            except Exception as e:
+                st.error(f"ネットワークグラフの生成に失敗しました: {e}")
+                import traceback
+                st.code(traceback.format_exc())
 
     st.divider()
 
@@ -978,6 +1182,7 @@ def display_project_articles(
             with col1:
                 pmid = article.get('pmid')
                 doi = article.get('doi')
+                article_id = article.get('article_id', f"pmid:{pmid}" if pmid else f"doi:{doi}" if doi else f"unknown_{i}")
 
                 # PMID表示（ある場合のみ）
                 if pmid:
@@ -1064,6 +1269,11 @@ def display_project_articles(
                     st.markdown("**アブストラクト:**")
                     st.text(article['abstract'])
 
+            # 日本語要約
+            if article.get('abstract_summary_ja'):
+                st.markdown("**📝 日本語要約:**")
+                st.success(article['abstract_summary_ja'])
+
             # 評価理由
             if article.get('relevance_reasoning'):
                 st.markdown("**AI評価理由:**")
@@ -1077,7 +1287,7 @@ def display_project_articles(
             comment = st.text_area(
                 label="メモを入力",
                 value=existing_comment,
-                key=f"comment_{pmid}_{i}",
+                key=f"comment_{article_id}_{i}",
                 height=100,
                 label_visibility="collapsed",
                 placeholder="この論文に関するメモやコメントを入力してください..."
@@ -1086,13 +1296,13 @@ def display_project_articles(
             # コメント保存ボタン
             if st.button(
                 "💾 メモを保存",
-                key=f"save_comment_{pmid}_{i}",
+                key=f"save_comment_{article_id}_{i}",
                 type="secondary",
                 help="メモをプロジェクトに保存します"
             ):
                 # 論文のコメントを更新
                 article['comment'] = comment
-                project.articles[pmid] = article
+                project.articles[article_id] = article
                 project.save()
                 st.success("メモを保存しました")
                 st.rerun()
@@ -1100,17 +1310,20 @@ def display_project_articles(
             st.divider()
 
             # ボタン群
-            pmid = article.get('pmid')
-
             col_btn1, col_btn2 = st.columns(2)
 
             with col_btn1:
+                # DOIのみの論文は検索できない（PMIDが必要）
+                can_search = pmid is not None
+                button_help = "この論文を起点として関連論文を探索します" if can_search else "DOIのみの論文は検索の起点にできません（PMIDが必要）"
+
                 if st.button(
                     "🔍 この論文を起点に検索",
-                    key=f"search_from_{pmid}",
+                    key=f"search_from_{article_id}_{i}",
                     type="primary",
                     use_container_width=True,
-                    help="この論文を起点として関連論文を探索します"
+                    disabled=not can_search,
+                    help=button_help
                 ):
                     # この論文を起点に検索を開始
                     st.info(f"PMID {pmid} を起点に検索を開始します...")
@@ -1129,6 +1342,7 @@ def display_project_articles(
                         max_cited_by=max_cited_by,
                         include_references=include_references,
                         max_references=max_references,
+                        pubmed_only=pubmed_only,
                         project=project,
                         notion_api_key=notion_api_key,
                         notion_database_id=notion_database_id
@@ -1137,14 +1351,25 @@ def display_project_articles(
             with col_btn2:
                 if st.button(
                     "🗑️ この論文を削除",
-                    key=f"delete_{pmid}",
+                    key=f"delete_{article_id}_{i}",
                     type="secondary",
                     use_container_width=True,
                     help="プロジェクトから削除します。次回検索時に再度発見されれば再評価されます。"
                 ):
-                    if project.delete_article(pmid):
+                    # article_idで削除（互換性のためpmidもサポート）
+                    deleted = False
+                    if article_id in project.articles:
+                        del project.articles[article_id]
+                        deleted = True
+                    elif pmid and pmid in project.articles:
+                        del project.articles[pmid]
+                        deleted = True
+
+                    if deleted:
+                        project._update_stats()
                         project.save()
-                        st.success(f"論文 PMID {pmid} を削除しました")
+                        display_name = f"PMID {pmid}" if pmid else f"DOI論文"
+                        st.success(f"論文 {display_name} を削除しました")
                         st.rerun()
                     else:
                         st.error("削除に失敗しました")
@@ -1165,6 +1390,7 @@ def run_search(
     max_cited_by: int,
     include_references: bool,
     max_references: int,
+    pubmed_only: bool,
     project,
     notion_api_key: Optional[str] = None,
     notion_database_id: Optional[str] = None
@@ -1221,6 +1447,7 @@ def run_search(
                 max_cited_by=max_cited_by,
                 include_references=include_references,
                 max_references=max_references,
+                pubmed_only=pubmed_only,
                 progress_callback=progress_callback,
                 project=project,
                 should_stop_callback=should_stop
@@ -1230,8 +1457,12 @@ def run_search(
         stop_button_placeholder.empty()
 
         # 完了メッセージ
-        if st.session_state.get('stop_search', False):
-            status_placeholder.warning("⏸️ 探索を途中で停止しました（部分的な結果を表示）")
+        interrupted = result.get('interrupted', False)
+        if interrupted or st.session_state.get('stop_search', False):
+            status_placeholder.warning(
+                "⏸️ 探索を途中で停止しました\n\n"
+                "検索状態が保存されました。次回同じプロジェクトで検索すると、評価済み論文は自動的にスキップされます。"
+            )
             st.session_state['stop_search'] = False
         else:
             status_placeholder.success("✅ 探索が完了しました！")
@@ -1296,7 +1527,7 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
     # フィルタ
     st.subheader("🔍 結果フィルタ")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
         show_only_relevant = st.checkbox(
@@ -1319,6 +1550,12 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
             value=False,
             key="results_filter_not_in_notion",
             help="Notionデータベースに未登録の論文のみ表示"
+        )
+        show_pubmed_only_results = st.checkbox(
+            "PubMed掲載論文のみ",
+            value=False,
+            key="results_filter_pubmed_only",
+            help="PMIDがある論文のみ表示（DOIのみの論文を除外）"
         )
 
     with col4:
@@ -1351,6 +1588,18 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
 
         min_score_filter = st.session_state.filter_results_slider
 
+    with col5:
+        # 最小被リンク数フィルタ
+        min_link_count_results = st.number_input(
+            "最小被リンク数",
+            min_value=0,
+            max_value=100,
+            value=0,
+            step=1,
+            key="results_min_link_count",
+            help="引用・類似を問わず、他の論文から検出された回数の最小値"
+        )
+
     # 論文リストをフィルタ
     filtered_articles = articles
 
@@ -1362,6 +1611,12 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
 
     if show_not_in_notion:
         filtered_articles = [a for a in filtered_articles if not a.get("in_notion", False)]
+
+    if show_pubmed_only_results:
+        filtered_articles = [a for a in filtered_articles if a.get("pmid") is not None]
+
+    if min_link_count_results > 0:
+        filtered_articles = [a for a in filtered_articles if len(a.get("mentioned_by", [])) >= min_link_count_results]
 
     filtered_articles = [
         a for a in filtered_articles
@@ -1384,6 +1639,32 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
         st.session_state.results_page = 1
 
     st.info(f"表示件数: {len(filtered_articles)} / {len(articles)}")
+
+    # ネットワークグラフ表示
+    if filtered_articles:
+        with st.expander("🕸️ ネットワークグラフを表示", expanded=False):
+            st.info("ノードの大きさ = 被リンク数、ノードの色 = 関連性スコア（赤=高、青=低）")
+
+            try:
+                # グラフを生成
+                graph_html_path = generate_network_graph(filtered_articles)
+
+                # HTMLファイルを読み込んで表示
+                with open(graph_html_path, 'r', encoding='utf-8') as f:
+                    graph_html = f.read()
+
+                components.html(graph_html, height=620, scrolling=True)
+
+                # 一時ファイルを削除
+                try:
+                    os.unlink(graph_html_path)
+                except:
+                    pass
+
+            except Exception as e:
+                st.error(f"ネットワークグラフの生成に失敗しました: {e}")
+                import traceback
+                st.code(traceback.format_exc())
 
     # 論文リストを表示
     st.subheader("📄 論文リスト")
@@ -1435,6 +1716,7 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
             with col1:
                 pmid = article.get('pmid')
                 doi = article.get('doi')
+                article_id = article.get('article_id', f"pmid:{pmid}" if pmid else f"doi:{doi}" if doi else f"unknown_{i}")
 
                 # PMID表示（ある場合のみ）
                 if pmid:
@@ -1524,6 +1806,11 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                     st.markdown("**アブストラクト:**")
                     st.text(article['abstract'])
 
+            # 日本語要約
+            if article.get('abstract_summary_ja'):
+                st.markdown("**📝 日本語要約:**")
+                st.success(article['abstract_summary_ja'])
+
             # 評価理由
             if article.get('relevance_reasoning'):
                 st.markdown("**AI評価理由:**")
@@ -1532,17 +1819,16 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
             # コメント・メモ機能（プロジェクトがある場合のみ）
             if project:
                 st.markdown("**📝 メモ・コメント:**")
-                pmid = article.get('pmid')
 
                 # プロジェクトから最新の論文データを取得
-                project_article = project.get_article(pmid)
+                project_article = project.get_article_by_id(article_id)
                 existing_comment = project_article.get('comment', '') if project_article else ''
 
                 # コメント入力エリア
                 comment = st.text_area(
                     label="メモを入力",
                     value=existing_comment,
-                    key=f"comment_result_{pmid}_{i}",
+                    key=f"comment_result_{article_id}_{i}",
                     height=100,
                     label_visibility="collapsed",
                     placeholder="この論文に関するメモやコメントを入力してください..."
@@ -1551,14 +1837,14 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                 # コメント保存ボタン
                 if st.button(
                     "💾 メモを保存",
-                    key=f"save_comment_result_{pmid}_{i}",
+                    key=f"save_comment_result_{article_id}_{i}",
                     type="secondary",
                     help="メモをプロジェクトに保存します"
                 ):
                     if project_article:
                         # 論文のコメントを更新
                         project_article['comment'] = comment
-                        project.articles[pmid] = project_article
+                        project.articles[article_id] = project_article
                         project.save()
                         st.success("メモを保存しました")
                         st.rerun()

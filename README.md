@@ -10,7 +10,10 @@
 - **スマートフィルタリング**: 関連性が低い論文は次階層の探索から除外
 - **論文数制限**: 1論文あたりの最大関連論文数を制限可能（探索数の爆発を防止）
 - **年代フィルタ**: 特定の年以降の論文のみに絞り込み可能
-- **評価停止**: 検索中に途中で停止可能
+- **一時中断・再開機能**:
+  - 検索中に「⏸️ 評価を停止」ボタンで途中停止可能
+  - 検索状態が自動保存され、次回同じプロジェクトで再開可能
+  - 評価済み論文は自動的にスキップされ、効率的に続きから探索
 - **堅牢なエラーハンドリング**:
   - Gemini API TPM制限時の自動リトライ（60秒/120秒/180秒待機）
   - 評価後の即座保存で進捗保護（最大1件のデータ損失に抑制）
@@ -36,6 +39,13 @@
 - **リアルタイムフィルタ**: 検索結果画面でフィルタを変更しても結果が保持される
 - **ページネーション**: 100件ずつ表示して大量の論文でもスムーズに閲覧可能
 - **スコア分布表示**: プロジェクト内論文のスコア分布を視覚的に把握
+- **ネットワークグラフ可視化** (NEW):
+  - PyVisによるインタラクティブな論文ネットワークの可視化
+  - ノードサイズ = 被リンク数（多くの論文から参照される重要論文が大きく表示）
+  - ノードの色 = 関連性スコア（赤=高スコア、青=低スコア）
+  - 矢印で親子関係を表示（親論文 → 子論文）
+  - 「最小被リンク数」フィルタで重要論文に絞り込み可能
+  - ホバーで論文詳細を表示
 - **API Key管理**: 無効なAPI Keyを検出し、GUIから.envに保存可能
 - **JSON出力**: 収集した論文データをJSON形式でエクスポート
 
@@ -238,6 +248,10 @@ streamlit run main.py --server.port 8502
   - **新規評価のみ表示**（チェックボックス） - キャッシュされた論文を除外
   - Notion未登録のみ表示（チェックボックス）
   - 最小スコア（スライダー + 数値入力、双方向連動）
+  - **最小被リンク数** (NEW) - 指定数以上参照された重要論文のみ表示
+- **ネットワークグラフ** (NEW):
+  - フィルタ条件を通過した論文のネットワークを可視化
+  - 「大きく赤いノード」= 多くの論文から参照され、かつ関連性が高い重要論文
 - **論文リスト**:
   - 各論文の詳細情報（PMID、著者、ジャーナル、出版年）
   - 京都大学図書館Article Linkerへのリンク
@@ -259,6 +273,10 @@ streamlit run main.py --server.port 8502
   - 検索セッション（すべて/最新の検索/過去のセッション）
   - Notion未登録のみ表示
   - 最小スコア（スライダー + 数値入力、双方向連動）
+  - **最小被リンク数** (NEW) - 指定数以上参照された重要論文のみ表示
+- **ネットワークグラフ** (NEW):
+  - フィルタ条件を通過した論文のネットワークを可視化
+  - ハブとなる重要論文を一目で把握可能
 - **論文リスト**:
   - 各論文の詳細情報とAbstract全文
   - 評価日時を表示
@@ -296,8 +314,9 @@ AriticleFinder/
 │
 └── projects/             # プロジェクトデータ保存先（自動生成）
     └── project_name/
-        ├── metadata.json     # プロジェクト情報
-        └── articles.json     # 評価済み論文データ
+        ├── metadata.json       # プロジェクト情報
+        ├── articles.json       # 評価済み論文データ
+        └── search_state.json   # 中断時の検索状態（一時ファイル）
 ```
 
 ## 🔧 仕組み
@@ -391,23 +410,32 @@ AriticleFinder/
 ```
 projects/
 └── プロジェクト名/
-    ├── metadata.json      # プロジェクト情報
+    ├── metadata.json       # プロジェクト情報
     │   - name: プロジェクト名
     │   - research_theme: 研究テーマ
     │   - created_at: 作成日時
     │   - updated_at: 更新日時
     │   - stats: 統計情報
+    │   - search_sessions: 検索セッション履歴
     │
-    └── articles.json      # 評価済み論文データ
-        - PMID ごとに論文情報と評価結果を保存
-        - relevance_score: 関連性スコア
-        - is_relevant: 関連性あり/なし
-        - relevance_reasoning: 評価理由
-        - source_pmid: 発見元のPMID
-        - source_type: 発見元のタイプ（similar/cited_by/references/起点論文）
-        - depth: 探索階層
-        - evaluated_at: 評価日時
-        - comment: ユーザーが追加したメモ・コメント（オプション）
+    ├── articles.json       # 評価済み論文データ
+    │   - article_id: 論文ID（pmid:xxx または doi:xxx）
+    │   - relevance_score: 関連性スコア
+    │   - is_relevant: 関連性あり/なし
+    │   - relevance_reasoning: 評価理由
+    │   - source_pmid: 発見元のPMID
+    │   - source_type: 発見元のタイプ（similar/cited_by/references/起点論文）
+    │   - mentioned_by: この論文を参照している親論文のIDリスト（被リンク）
+    │   - depth: 探索階層
+    │   - evaluated_at: 評価日時
+    │   - comment: ユーザーが追加したメモ・コメント（オプション）
+    │
+    └── search_state.json   # 中断時の検索状態（一時ファイル）
+        - start_pmid: 起点論文のPMID
+        - current_layer: 次に探索する論文リスト
+        - current_depth: 現在の探索階層
+        - collected_articles: 収集済み論文データ
+        - settings: 探索設定
 ```
 
 ## 📝 使用例
@@ -477,8 +505,10 @@ Failed to fetch article
 ## 🙏 謝辞
 
 - [PubMed E-utilities API](https://www.ncbi.nlm.nih.gov/books/NBK25501/)
+- [OpenAlex API](https://docs.openalex.org/)
 - [Google Gemini API](https://ai.google.dev/)
 - [Streamlit](https://streamlit.io/)
+- [PyVis](https://pyvis.readthedocs.io/)
 
 ## 📧 お問い合わせ
 

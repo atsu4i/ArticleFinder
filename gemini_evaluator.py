@@ -242,3 +242,48 @@ class GeminiEvaluator:
             })
 
         return results
+
+    def summarize_abstract(self, abstract: str, title: str = "") -> str:
+        """
+        アブストラクトを日本語で要約
+
+        Args:
+            abstract: 論文のアブストラクト（英語）
+            title: 論文のタイトル（オプション）
+
+        Returns:
+            日本語の要約文
+        """
+        if not abstract:
+            return "アブストラクトが利用できません。"
+
+        # プロンプトを作成
+        prompt = f"""以下の論文のアブストラクトを日本語で簡潔に要約してください。
+重要なポイント（目的、方法、結果、結論）を含めて、3-4文程度で要約してください。
+
+タイトル: {title if title else "なし"}
+
+アブストラクト:
+{abstract}
+
+要約:"""
+
+        # リトライ設定
+        max_retries = 3
+        retry_delay = 2
+
+        for attempt in range(max_retries):
+            try:
+                response = self.model.generate_content(prompt)
+                summary = response.text.strip()
+                return summary
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"要約生成エラー（リトライ {attempt + 1}/{max_retries}）: {e}")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # 指数バックオフ
+                else:
+                    print(f"要約生成に失敗しました: {e}")
+                    return f"要約生成エラー: {str(e)}"
+
+        return "要約を生成できませんでした。"

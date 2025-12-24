@@ -176,6 +176,7 @@ class Project:
         self.project_path = Path(project_path)
         self.metadata_path = self.project_path / "metadata.json"
         self.articles_path = self.project_path / "articles.json"
+        self.search_state_path = self.project_path / "search_state.json"
 
         # メタデータを読み込み
         self._load_metadata()
@@ -432,3 +433,54 @@ class Project:
         }
 
         return json.dumps(export_data, ensure_ascii=False, indent=2)
+
+    def save_search_state(self, state: Dict):
+        """
+        検索状態を保存（中断・再開用）
+
+        Args:
+            state: 検索状態の辞書
+                - queue: 次に探索する論文のリスト
+                - current_depth: 現在の深さ
+                - settings: 探索設定
+                - session_id: セッションID
+                - start_pmid: 起点論文のPMID
+                - saved_at: 保存日時
+        """
+        state["saved_at"] = datetime.now().isoformat()
+
+        with open(self.search_state_path, 'w', encoding='utf-8') as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+
+    def load_search_state(self) -> Optional[Dict]:
+        """
+        保存された検索状態を読み込み
+
+        Returns:
+            検索状態（存在しない場合はNone）
+        """
+        if not self.search_state_path.exists():
+            return None
+
+        try:
+            with open(self.search_state_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Failed to load search state: {e}")
+            return None
+
+    def has_search_state(self) -> bool:
+        """
+        未完了の検索状態があるかチェック
+
+        Returns:
+            検索状態が存在する場合True
+        """
+        return self.search_state_path.exists()
+
+    def clear_search_state(self):
+        """
+        検索状態をクリア（検索完了時に呼び出す）
+        """
+        if self.search_state_path.exists():
+            self.search_state_path.unlink()

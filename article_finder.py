@@ -97,6 +97,7 @@ class ArticleFinder:
         max_cited_by: int = 20,
         include_references: bool = False,
         max_references: int = 20,
+        pubmed_only: bool = False,
         progress_callback: Optional[Callable] = None,
         project: Optional[Project] = None,
         should_stop_callback: Optional[Callable] = None
@@ -117,6 +118,7 @@ class ArticleFinder:
             max_cited_by: Cited byの最大取得数（1論文あたり）
             include_references: Referencesを探索するか
             max_references: Referencesの最大取得数（1論文あたり）
+            pubmed_only: PubMed収録論文のみを対象にする（DOIのみの論文を除外）
             progress_callback: 進捗通知用コールバック関数
             project: プロジェクト（指定時は重複チェックとキャッシュを使用）
             should_stop_callback: 停止チェック用コールバック関数（Trueを返すと探索を停止）
@@ -130,7 +132,8 @@ class ArticleFinder:
                     "total_relevant": int,
                     "total_skipped": int,  # キャッシュからの取得数
                     "depth_reached": int
-                }
+                },
+                "interrupted": bool  # 停止により中断された場合True
             }
         """
         # 起点PMIDを抽出
@@ -213,6 +216,7 @@ class ArticleFinder:
                     "depth": 0,
                     "source_pmid": None,
                     "source_type": "起点論文",
+                    "mentioned_by": [],  # 起点論文は誰からも参照されていない
                     "search_session_id": session_id,  # セッションIDを記録
                     "is_newly_evaluated": True  # 新規評価されたことを示すフラグ
                 })
@@ -272,6 +276,42 @@ class ArticleFinder:
             if should_stop_callback and should_stop_callback():
                 print(f"[DEBUG] 停止リクエストを受け付けました")
                 self._notify_progress(progress_callback, "停止リクエストを受け付けました")
+
+                # 検索状態を保存
+                if project:
+                    search_state = {
+                        "start_pmid": start_pmid,
+                        "research_theme": research_theme,
+                        "session_id": session_id,
+                        "current_layer": current_layer,
+                        "current_depth": depth,
+                        "visited_ids": list(visited_ids),
+                        "collected_articles": collected_articles,
+                        "stats": stats,
+                        "settings": {
+                            "max_depth": max_depth,
+                            "max_articles": max_articles,
+                            "relevance_threshold": relevance_threshold,
+                            "year_from": year_from,
+                            "include_similar": include_similar,
+                            "max_similar": max_similar,
+                            "include_cited_by": include_cited_by,
+                            "max_cited_by": max_cited_by,
+                            "include_references": include_references,
+                            "max_references": max_references,
+                            "pubmed_only": pubmed_only
+                        }
+                    }
+                    project.save_search_state(search_state)
+                    self._notify_progress(progress_callback, "検索状態を保存しました")
+
+                # 中断フラグを立てて終了
+                return {
+                    "articles": list(collected_articles.values()),
+                    "stats": stats,
+                    "interrupted": True
+                }
+
                 break
 
             if not current_layer:
@@ -305,6 +345,7 @@ class ArticleFinder:
                 max_cited_by=max_cited_by,
                 include_references=include_references,
                 max_references=max_references,
+                pubmed_only=pubmed_only,
                 progress_callback=progress_callback,
                 stats=stats,
                 project=project,
@@ -375,9 +416,13 @@ class ArticleFinder:
             project.save()
             self._notify_progress(progress_callback, "プロジェクトを保存しました")
 
+            # 検索完了時は保存された状態をクリア
+            project.clear_search_state()
+
         return {
             "articles": articles_list,
-            "stats": stats
+            "stats": stats,
+            "interrupted": False
         }
 
     def _explore_layer(
@@ -396,6 +441,7 @@ class ArticleFinder:
         max_cited_by: int,
         include_references: bool,
         max_references: int,
+        pubmed_only: bool,
         progress_callback: Optional[Callable],
         stats: Dict,
         project: Optional[Project],
@@ -417,8 +463,26 @@ class ArticleFinder:
 
         next_layer_pmids = []
 
-        for i, pmid in enumerate(pmids):
-            print(f"\n[DEBUG] 論文 {i+1}/{len(pmids)}: PMID {pmid} を処理中")
+        for i, identifier in enumerate(pmids):
+            # identifierがPMIDかDOIかを判定
+            is_doi_identifier = identifier.startswith("10.")
+
+            # 親論文のarticle_idを生成（mentioned_by記録用）
+            parent_article_id = f"doi:{identifier}" if is_doi_identifier else f"pmid:{identifier}"
+
+            if is_doi_identifier:
+                print(f"\n[DEBUG] 論文 {i+1}/{len(pmids)}: DOI {identifier} を処理中")
+                self._notify_progress(
+                    progress_callback,
+                    f"DOI {identifier} の関連論文を取得中"
+                )
+            else:
+                print(f"\n[DEBUG] 論文 {i+1}/{len(pmids)}: PMID {identifier} を処理中")
+                self._notify_progress(
+                    progress_callback,
+                    f"PMID {identifier} の関連論文を取得中"
+                )
+
             # 停止チェック
             if should_stop_callback and should_stop_callback():
                 self._notify_progress(progress_callback, "停止リクエストを受け付けました")
@@ -432,11 +496,6 @@ class ArticleFinder:
                 )
                 break
 
-            self._notify_progress(
-                progress_callback,
-                f"PMID {pmid} の関連論文を取得中"
-            )
-
             # 関連論文を取得（ソース情報も含む）
             # 関連論文のリスト: (identifier, source_type, extra_doi, is_doi_only) のタプルのリスト
             # identifier: PMID または DOI
@@ -445,23 +504,46 @@ class ArticleFinder:
             related_pmids_with_source = []
 
             print(f"  [DEBUG] 関連論文取得開始")
-            if include_similar:
-                similar = self.pubmed.get_related_articles(pmid, "similar")
+
+            # Similar articles（PMIDの場合のみ）
+            if include_similar and not is_doi_identifier:
+                similar = self.pubmed.get_related_articles(identifier, "similar")
                 # 制限数まで切り詰め
                 related_pmids_with_source.extend([(p, "similar", None, False) for p in similar[:max_similar]])
                 print(f"    Similar articles: {len(similar)} 件中 {len(similar[:max_similar])} 件取得")
                 self._notify_progress(progress_callback, f"  Similar articles: {len(similar[:max_similar])} 件取得")
+            elif include_similar and is_doi_identifier:
+                print(f"    Similar articles: DOIのみの論文のためスキップ")
 
+            # Cited by（PMIDまたはDOI）
             if include_cited_by:
-                cited_by = self.pubmed.get_related_articles(pmid, "cited_by")
+                # OpenAlexからCited byを取得（DOIがある全ての文献）
+                if is_doi_identifier:
+                    cited_by = self.openalex.get_cited_by_by_doi(identifier, limit=max_cited_by)
+                else:
+                    cited_by = self.openalex.get_cited_by_by_pmid(identifier, limit=max_cited_by)
                 # 制限数まで切り詰め
-                related_pmids_with_source.extend([(p, "cited_by", None, False) for p in cited_by[:max_cited_by]])
+                for cite in cited_by[:max_cited_by]:
+                    cite_pmid = cite.get("pmid")
+                    cite_doi = cite.get("doi")
+
+                    if cite_pmid:
+                        # PMIDがある場合
+                        related_pmids_with_source.append((cite_pmid, "cited_by", cite_doi, False))
+                    elif cite_doi:
+                        # DOIのみの場合
+                        related_pmids_with_source.append((cite_doi, "cited_by", None, True))
+
                 print(f"    Cited by: {len(cited_by)} 件中 {len(cited_by[:max_cited_by])} 件取得")
                 self._notify_progress(progress_callback, f"  Cited by: {len(cited_by[:max_cited_by])} 件取得")
 
+            # References（PMIDまたはDOI）
             if include_references:
                 # OpenAlexからReferencesを取得（DOIがある全ての文献）
-                references = self.openalex.get_references_by_pmid(pmid)
+                if is_doi_identifier:
+                    references = self.openalex.get_references_by_doi(identifier)
+                else:
+                    references = self.openalex.get_references_by_pmid(identifier)
                 # 制限数まで切り詰め
                 for ref in references[:max_references]:
                     ref_pmid = ref.get("pmid")
@@ -517,6 +599,11 @@ class ArticleFinder:
 
             # 各論文を取得・評価
             for identifier, source_type, openalex_doi, is_doi_only in new_pmids_with_source:
+                # PubMed収録論文のみを対象にする場合、DOIのみの論文はスキップ
+                if pubmed_only and is_doi_only:
+                    print(f"  [DEBUG] PubMedのみモード: DOI {identifier} をスキップ")
+                    continue
+
                 # 停止チェック
                 if should_stop_callback and should_stop_callback():
                     self._notify_progress(progress_callback, "停止リクエストを受け付けました")
@@ -550,8 +637,39 @@ class ArticleFinder:
 
                     # ソース情報を追加（キャッシュにない場合のみ）
                     if "source_pmid" not in article:
-                        article["source_pmid"] = pmid
+                        article["source_pmid"] = identifier
                         article["source_type"] = source_type
+
+                    # mentioned_byを更新（重複時も親を追記）
+                    mentioned_by = article.get("mentioned_by", [])
+                    if not isinstance(mentioned_by, list):
+                        mentioned_by = []
+                    if parent_article_id not in mentioned_by:
+                        mentioned_by.append(parent_article_id)
+                        article["mentioned_by"] = mentioned_by
+                        # mentioned_by更新は必ず保存
+                        if project:
+                            project.add_article(article)
+                            project.save()
+                            print(f"    {display_id} の mentioned_by を更新: {parent_article_id} を追加")
+
+                    # 日本語要約がない場合は生成
+                    if "abstract_summary_ja" not in article or not article.get("abstract_summary_ja"):
+                        abstract = article.get("abstract", "")
+                        title = article.get("title", "")
+                        if abstract:
+                            try:
+                                abstract_summary_ja = self.evaluator.summarize_abstract(abstract, title)
+                                article["abstract_summary_ja"] = abstract_summary_ja
+                                # プロジェクトに保存
+                                if project:
+                                    project.add_article(article)
+                                    project.save()
+                            except Exception as e:
+                                print(f"要約生成エラー: {e}")
+                                article["abstract_summary_ja"] = "要約生成エラー"
+                        else:
+                            article["abstract_summary_ja"] = "アブストラクトが利用できません。"
 
                     # キャッシュから取得したことを示すフラグ
                     article["is_newly_evaluated"] = False
@@ -592,6 +710,14 @@ class ArticleFinder:
                             relevance_threshold
                         )
 
+                        # アブストラクトの日本語要約を生成
+                        abstract = article.get("abstract", "")
+                        title = article.get("title", "")
+                        if abstract:
+                            abstract_summary_ja = self.evaluator.summarize_abstract(abstract, title)
+                        else:
+                            abstract_summary_ja = "アブストラクトが利用できません。"
+
                         stats["total_evaluated"] += 1
                         stats["session_article_count"] += 1  # セッションカウントを増やす
 
@@ -601,9 +727,11 @@ class ArticleFinder:
                             "relevance_score": evaluation["score"],
                             "is_relevant": evaluation["is_relevant"],
                             "relevance_reasoning": evaluation["reasoning"],
+                            "abstract_summary_ja": abstract_summary_ja,  # 日本語要約を追加
                             "depth": depth,
-                            "source_pmid": pmid,
+                            "source_pmid": identifier,
                             "source_type": source_type,
+                            "mentioned_by": [parent_article_id],  # 親論文のIDを記録
                             "search_session_id": session_id,  # セッションIDを記録
                             "is_newly_evaluated": True  # 新規評価されたことを示すフラグ
                         })
@@ -629,8 +757,9 @@ class ArticleFinder:
                             "is_relevant": False,
                             "relevance_reasoning": f"評価エラー: {str(e)}",
                             "depth": depth,
-                            "source_pmid": pmid,
+                            "source_pmid": identifier,
                             "source_type": source_type,
+                            "mentioned_by": [parent_article_id],  # 親論文のIDを記録
                             "search_session_id": session_id,  # セッションIDを記録
                             "is_newly_evaluated": True  # エラーでも評価は試みたのでTrue
                         })
@@ -651,17 +780,18 @@ class ArticleFinder:
                 # 関連性が高い論文は次の階層で探索
                 if article.get("is_relevant"):
                     stats["total_relevant"] += 1
-                    # DOIのみの論文は次の階層で探索できない（PMIDが必要）
+                    # PMID論文もDOI論文も次の階層に追加
+                    # ただし、DOI論文からはSimilar articlesは検索できない（Cited by/Referencesのみ）
+                    next_layer_pmids.append(identifier)
                     if not is_doi_only:
-                        next_layer_pmids.append(identifier)  # これはPMID
                         print(f"    PMID {identifier} を次の階層に追加 (スコア: {article.get('relevance_score')})")
                     else:
-                        print(f"    DOI {identifier} は関連性あり (スコア: {article.get('relevance_score')}) だが、次の階層探索はスキップ (DOIのみ)")
+                        print(f"    DOI {identifier} を次の階層に追加 (スコア: {article.get('relevance_score')}) ※Similar articlesは除く")
 
         print(f"\n[DEBUG] _explore_layer 終了")
         print(f"  次の階層に追加する論文数: {len(next_layer_pmids)} 件")
         if next_layer_pmids:
-            print(f"  PMIDs: {next_layer_pmids[:5]}...")
+            print(f"  識別子: {next_layer_pmids[:5]}...")
 
         return next_layer_pmids
 
