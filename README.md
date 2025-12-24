@@ -39,13 +39,22 @@
 - **リアルタイムフィルタ**: 検索結果画面でフィルタを変更しても結果が保持される
 - **ページネーション**: 100件ずつ表示して大量の論文でもスムーズに閲覧可能
 - **スコア分布表示**: プロジェクト内論文のスコア分布を視覚的に把握
-- **ネットワークグラフ可視化** (NEW):
+- **ネットワークグラフ可視化**:
   - PyVisによるインタラクティブな論文ネットワークの可視化
   - ノードサイズ = 被リンク数（多くの論文から参照される重要論文が大きく表示）
   - ノードの色 = 関連性スコア（赤=高スコア、青=低スコア）
   - 矢印で親子関係を表示（親論文 → 子論文）
   - 「最小被リンク数」フィルタで重要論文に絞り込み可能
   - ホバーで論文詳細を表示
+- **セマンティック・マップ可視化** (NEW):
+  - Gemini Embeddings API（`embedding-001`）を使用したアブストラクトのベクトル化
+  - UMAPによる2次元圧縮で意味的類似性を空間配置
+  - **Hidden Gemsの発見**: 引用関係が少なくても内容が類似した論文を発見
+  - バッチ処理（100件ずつ）で高速化、進捗バーで待機ストレス軽減
+  - ベクトルデータのキャッシュで再計算不要
+  - 点の色 = 関連性スコア（赤=高、黄=中、青=低）
+  - 点の大きさ = 被リンク数（重要なハブ論文）
+  - インタラクティブなPlotly散布図
 - **API Key管理**: 無効なAPI Keyを検出し、GUIから.envに保存可能
 - **JSON出力**: 収集した論文データをJSON形式でエクスポート
 
@@ -295,6 +304,7 @@ AriticleFinder/
 ├── pubmed_api.py          # PubMed API連携
 ├── openalex_api.py        # OpenAlex API連携（References取得）
 ├── gemini_evaluator.py    # Gemini AI評価
+├── embedding_manager.py   # アブストラクトのベクトル化（セマンティック・マップ）
 ├── notion_api.py          # Notion API連携
 ├── project_manager.py     # プロジェクト管理
 │
@@ -315,7 +325,7 @@ AriticleFinder/
 └── projects/             # プロジェクトデータ保存先（自動生成）
     └── project_name/
         ├── metadata.json       # プロジェクト情報
-        ├── articles.json       # 評価済み論文データ
+        ├── articles.json       # 評価済み論文データ（embedding含む）
         └── search_state.json   # 中断時の検索状態（一時ファイル）
 ```
 
@@ -509,6 +519,9 @@ Failed to fetch article
 - [Google Gemini API](https://ai.google.dev/)
 - [Streamlit](https://streamlit.io/)
 - [PyVis](https://pyvis.readthedocs.io/)
+- [scikit-learn](https://scikit-learn.org/)
+- [UMAP](https://umap-learn.readthedocs.io/)
+- [Plotly](https://plotly.com/python/)
 
 ## 📧 お問い合わせ
 

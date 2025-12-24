@@ -93,6 +93,35 @@ class OpenAlexAPI:
         url = f"{self.BASE_URL}/works/doi:{doi_clean}"
         return self._make_request(url)
 
+    def _reconstruct_abstract_from_inverted_index(self, inverted_index: dict) -> str:
+        """
+        OpenAlexのabstract_inverted_indexから元のabstractを復元
+
+        Args:
+            inverted_index: {word: [positions]} の形式の辞書
+
+        Returns:
+            復元されたabstract文字列
+        """
+        if not inverted_index or not isinstance(inverted_index, dict):
+            return ""
+
+        # 位置とワードのマッピングを作成
+        position_word_map = {}
+        for word, positions in inverted_index.items():
+            if isinstance(positions, list):
+                for pos in positions:
+                    position_word_map[pos] = word
+
+        # 位置順にソートして文字列を構築
+        if not position_word_map:
+            return ""
+
+        sorted_positions = sorted(position_word_map.keys())
+        words = [position_word_map[pos] for pos in sorted_positions]
+
+        return " ".join(words)
+
     def get_article_info_by_doi(self, doi: str) -> Optional[Dict]:
         """
         DOIから論文情報を取得（PubMed APIの代替）
@@ -134,13 +163,13 @@ class OpenAlexAPI:
             if source:
                 journal = source.get("display_name", "")
 
-        # アブストラクトを取得（OpenAlexにはない場合が多い）
+        # アブストラクトを取得
         abstract = work.get("abstract", "")
         if not abstract:
-            abstract = work.get("abstract_inverted_index", "")
-            if abstract:
-                # inverted indexから復元（簡易版）
-                abstract = "[Abstract available in OpenAlex API]"
+            # abstract_inverted_indexから復元を試みる
+            inverted_index = work.get("abstract_inverted_index")
+            if inverted_index:
+                abstract = self._reconstruct_abstract_from_inverted_index(inverted_index)
 
         return {
             "pmid": None,  # PMIDなし

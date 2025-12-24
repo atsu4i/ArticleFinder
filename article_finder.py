@@ -685,12 +685,12 @@ class ArticleFinder:
                         # PMIDがある場合はPubMed APIから取得
                         article = self.pubmed.get_article_info(identifier)
 
-                        # DOI情報を補完（OpenAlexから取得したDOIがあり、PubMedのDOIがない場合）
-                        if openalex_doi and not article.get("doi"):
-                            article["doi"] = openalex_doi
-
                     if not article:
                         continue
+
+                    # DOI情報を補完（OpenAlexから取得したDOIがあり、PubMedのDOIがない場合）
+                    if not is_doi_only and openalex_doi and not article.get("doi"):
+                        article["doi"] = openalex_doi
 
                     # 年フィルタ
                     if year_from and article.get("pub_year"):

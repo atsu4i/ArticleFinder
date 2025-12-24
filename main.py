@@ -10,9 +10,11 @@ from typing import Optional, List, Dict
 from article_finder import ArticleFinder
 from project_manager import ProjectManager
 from gemini_evaluator import GeminiEvaluator
+from embedding_manager import EmbeddingManager
 from pyvis.network import Network
 import streamlit.components.v1 as components
 import tempfile
+import plotly.express as px
 
 
 def save_api_key_to_env(api_key: str) -> bool:
@@ -225,6 +227,175 @@ def generate_network_graph(articles: List[Dict]) -> str:
     with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8') as f:
         net.save_graph(f.name)
         return f.name
+
+
+def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
+    """
+    論文のセマンティック・マップ（意味的類似性マップ）を生成・表示
+
+    Args:
+        articles: 論文リスト
+        api_key: Gemini API Key
+        project: プロジェクトオブジェクト（保存用）
+    """
+    import pandas as pd
+
+    # ベクトル化済みの論文数をカウント
+    articles_with_embedding = [a for a in articles if a.get("embedding")]
+    articles_without_embedding = [a for a in articles if not a.get("embedding")]
+
+    total_articles = len(articles)
+    vectorized_count = len(articles_with_embedding)
+
+    if len(articles_without_embedding) > 0:
+        # 未ベクトル化の論文がある場合
+        st.warning(
+            f"⚠️ 未計算の論文が {len(articles_without_embedding)} 件あります。\n\n"
+            f"マップを表示するには計算が必要です（所要時間: 約{len(articles_without_embedding) // 100 + 1}分）。"
+        )
+
+        if st.button("🔮 ベクトルを計算してマップを作成", type="primary", use_container_width=True):
+            # ベクトル化を実行
+            try:
+                embedding_manager = EmbeddingManager(api_key=api_key)
+
+                # プログレスバーを表示
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                def progress_callback(message, current, total):
+                    if total > 0:
+                        progress_bar.progress(current / total)
+                    status_text.info(message)
+
+                # バッチでベクトル化
+                embedding_manager.embed_articles_batch(
+                    articles,
+                    batch_size=100,
+                    progress_callback=progress_callback
+                )
+
+                # 2次元座標を計算
+                status_text.info("UMAP で2次元座標を計算中...")
+                embedding_manager.calculate_2d_coordinates(articles)
+
+                progress_bar.empty()
+                status_text.success("✅ ベクトル化完了！")
+
+                # プロジェクトに保存
+                if project:
+                    for article in articles:
+                        project.add_article(article)
+                    project.save()
+
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"ベクトル化中にエラーが発生しました: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+    else:
+        # 全ての論文がベクトル化済み
+        st.success(f"✅ 全 {total_articles} 件の論文がベクトル化済みです")
+
+        # 2次元座標がない場合は計算
+        articles_with_coords = [a for a in articles if a.get("umap_x") is not None]
+        if len(articles_with_coords) < len(articles):
+            try:
+                embedding_manager = EmbeddingManager(api_key=api_key)
+                with st.spinner("UMAP で2次元座標を計算中..."):
+                    embedding_manager.calculate_2d_coordinates(articles)
+
+                # プロジェクトに保存
+                if project:
+                    for article in articles:
+                        project.add_article(article)
+                    project.save()
+
+                st.rerun()
+            except Exception as e:
+                st.error(f"座標計算中にエラーが発生しました: {e}")
+                return
+
+        # マップを描画
+        if len(articles_with_coords) >= 2:
+            # Plotly 散布図用のデータフレームを作成
+            df_data = []
+            for article in articles:
+                if article.get("umap_x") is not None and article.get("umap_y") is not None:
+                    pmid = article.get("pmid", "")
+                    doi = article.get("doi", "")
+                    display_id = f"PMID:{pmid}" if pmid else f"DOI:{doi}"
+
+                    df_data.append({
+                        "x": article["umap_x"],
+                        "y": article["umap_y"],
+                        "title": article.get("title", "")[:60] + "...",
+                        "relevance_score": article.get("relevance_score", 0),
+                        "link_count": len(article.get("mentioned_by", [])),
+                        "display_id": display_id,
+                        "full_title": article.get("title", "")
+                    })
+
+            df = pd.DataFrame(df_data)
+
+            # Plotly 散布図を作成
+            fig = px.scatter(
+                df,
+                x="x",
+                y="y",
+                color="relevance_score",
+                size="link_count",
+                hover_data={
+                    "x": False,
+                    "y": False,
+                    "full_title": True,
+                    "display_id": True,
+                    "relevance_score": True,
+                    "link_count": True
+                },
+                color_continuous_scale=[
+                    [0.0, "rgb(100, 100, 255)"],   # 濃い青（0点）
+                    [0.39, "rgb(200, 200, 255)"],  # 薄い青（39点）
+                    [0.40, "rgb(255, 255, 100)"],  # 黄色（40点）
+                    [0.69, "rgb(255, 255, 0)"],    # 濃い黄色（69点）
+                    [0.70, "rgb(255, 150, 150)"],  # ピンク（70点）
+                    [1.0, "rgb(255, 0, 0)"]        # 濃い赤（100点）
+                ],
+                range_color=[0, 100],
+                labels={
+                    "relevance_score": "関連性スコア",
+                    "link_count": "被リンク数",
+                    "display_id": "ID",
+                    "full_title": "タイトル"
+                },
+                title="セマンティック・マップ（意味的類似性マップ）"
+            )
+
+            # レイアウト調整
+            fig.update_layout(
+                height=600,
+                xaxis_title="",
+                yaxis_title="",
+                showlegend=True,
+                hovermode='closest'
+            )
+
+            # 軸の目盛りを非表示
+            fig.update_xaxes(showticklabels=False, showgrid=False)
+            fig.update_yaxes(showticklabels=False, showgrid=False)
+
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.info(
+                "💡 **マップの見方**\n\n"
+                "- **位置が近い論文** = 内容が意味的に類似\n"
+                "- **点の色** = 関連性スコア（赤=高、黄=中、青=低）\n"
+                "- **点の大きさ** = 被リンク数（大きいほど重要なハブ論文）\n"
+                "- **ホバー** = タイトルと詳細情報を表示"
+            )
+        else:
+            st.info("マップを表示するには2件以上の論文が必要です")
 
 
 def main():
@@ -990,9 +1161,13 @@ def display_project_articles(
 
     st.info(f"表示件数: {len(filtered_articles)} / {len(articles)}")
 
-    # ネットワークグラフ表示
+    # 可視化（ネットワークグラフ & セマンティック・マップ）
     if filtered_articles:
-        with st.expander("🕸️ ネットワークグラフを表示", expanded=False):
+        st.subheader("📊 論文の可視化")
+
+        tab1, tab2 = st.tabs(["🕸️ ネットワークグラフ", "🔮 セマンティック・マップ"])
+
+        with tab1:
             st.info("ノードの大きさ = 被リンク数、ノードの色 = 関連性スコア（赤=高、青=低）")
 
             try:
@@ -1015,6 +1190,10 @@ def display_project_articles(
                 st.error(f"ネットワークグラフの生成に失敗しました: {e}")
                 import traceback
                 st.code(traceback.format_exc())
+
+        with tab2:
+            # セマンティック・マップを表示
+            generate_semantic_map(filtered_articles, api_key, project)
 
     st.divider()
 
@@ -1258,8 +1437,19 @@ def display_project_articles(
                 source_pmid = article.get('source_pmid')
                 source_type = article.get('source_type', '')
                 if source_pmid:
-                    source_type_jp = "類似論文" if source_type == "similar" else "引用論文"
-                    st.markdown(f"**発見元:** PMID {source_pmid} の{source_type_jp}")
+                    # source_typeの日本語変換
+                    source_type_map = {
+                        "similar": "類似論文",
+                        "cited_by": "引用論文",
+                        "references": "引用文献"
+                    }
+                    source_type_jp = source_type_map.get(source_type, "関連論文")
+
+                    # source_pmidがDOI形式かPMID形式か判定
+                    if source_pmid.startswith("10."):
+                        st.markdown(f"**発見元:** DOI {source_pmid} の{source_type_jp}")
+                    else:
+                        st.markdown(f"**発見元:** PMID {source_pmid} の{source_type_jp}")
                 elif source_type == "起点論文":
                     st.markdown(f"**発見元:** {source_type}")
 
@@ -1795,8 +1985,19 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                 source_pmid = article.get('source_pmid')
                 source_type = article.get('source_type', '')
                 if source_pmid:
-                    source_type_jp = "類似論文" if source_type == "similar" else "引用論文"
-                    st.markdown(f"**発見元:** PMID {source_pmid} の{source_type_jp}")
+                    # source_typeの日本語変換
+                    source_type_map = {
+                        "similar": "類似論文",
+                        "cited_by": "引用論文",
+                        "references": "引用文献"
+                    }
+                    source_type_jp = source_type_map.get(source_type, "関連論文")
+
+                    # source_pmidがDOI形式かPMID形式か判定
+                    if source_pmid.startswith("10."):
+                        st.markdown(f"**発見元:** DOI {source_pmid} の{source_type_jp}")
+                    else:
+                        st.markdown(f"**発見元:** PMID {source_pmid} の{source_type_jp}")
                 elif source_type == "起点論文":
                     st.markdown(f"**発見元:** {source_type}")
 
