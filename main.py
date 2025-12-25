@@ -207,7 +207,9 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
         # 未ベクトル化の論文がある場合
         st.warning(
             f"⚠️ 未計算の論文が {len(articles_without_embedding)} 件あります。\n\n"
-            f"マップを表示するには計算が必要です（所要時間: 約{len(articles_without_embedding) // 100 + 1}分）。"
+            f"マップを表示するにはベクトル計算（Gemini Embedding API）が必要です。\n\n"
+            f"**注意**: Embedding APIの使用には有料tierのAPIキーが必要です。"
+            f"ただし、無料枠内で計算可能な場合がほとんどで、料金はかからないかごくわずかです。"
         )
 
         if st.button("🔮 ベクトルを計算してマップを作成", type="primary", use_container_width=True):
@@ -366,44 +368,40 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
                     key="semantic_map_chart"
                 )
 
-                # 選択された論文のアクションボタン表示
+                # 選択された論文を論文リストで表示（直接ジャンプ）
+                # 無限ループを防ぐため、前回処理したIDを記録
+                if 'last_semantic_map_selection' not in st.session_state:
+                    st.session_state.last_semantic_map_selection = None
+
                 if selected and "selection" in selected and "points" in selected["selection"]:
                     points = selected["selection"]["points"]
                     if len(points) > 0:
                         # 最初に選択されたポイントを取得
                         point_index = points[0]["point_index"]
                         selected_article = articles_with_coords[point_index]
+                        selected_id = selected_article["article_id"]
 
-                        st.success(f"✅ 選択: {selected_article.get('title', '不明')[:60]}...")
+                        # 前回と同じ選択なら処理をスキップ（無限ループ防止）
+                        if st.session_state.last_semantic_map_selection != selected_id:
+                            # 論文リストで該当論文を選択状態にして、自動スクロール
+                            st.session_state.selected_article_id = selected_id
+                            st.session_state.last_semantic_map_selection = selected_id
 
-                        col1, col2, col3 = st.columns([1, 1, 2])
+                            # 選択された論文が含まれるページに移動
+                            # 論文リスト全体（articles）から該当論文のインデックスを探す
+                            global_index = next((i for i, a in enumerate(articles) if a["article_id"] == selected_id), 0)
+                            target_page = (global_index // 20) + 1  # 20件/ページ（ITEMS_PER_PAGE）
+                            st.session_state.project_page = target_page
 
-                        with col1:
-                            if st.button("📄 詳細を見る", key=f"semantic_show_details_{selected_article['article_id']}", use_container_width=True):
-                                # 論文リストで該当論文を選択状態にして、自動スクロール
-                                st.session_state.selected_article_id = selected_article["article_id"]
-
-                                # 選択された論文が含まれるページに移動
-                                # 論文リスト全体（articles）から該当論文のインデックスを探す
-                                global_index = next((i for i, a in enumerate(articles) if a["article_id"] == selected_article["article_id"]), 0)
-                                target_page = (global_index // 20) + 1  # 20件/ページ（ITEMS_PER_PAGE）
-                                st.session_state.project_page = target_page
-
-                                st.rerun()
-
-                        with col2:
-                            pmid = selected_article.get("pmid")
-                            doi = selected_article.get("doi")
-                            if pmid or doi:
-                                start_id = pmid if pmid else doi
-                                if st.button("🚀 この論文で検索", key=f"semantic_search_quick_{selected_article['article_id']}", use_container_width=True):
-                                    st.session_state.clicked_article_for_search = {
-                                        "id": start_id,
-                                        "title": selected_article.get("title", ""),
-                                        "is_pmid": pmid is not None,
-                                        "auto_start": True
-                                    }
-                                    st.rerun()
+                            # on_select="rerun" により自動的に再実行されるので、明示的なst.rerun()は不要
+                            # ただし、確実にジャンプするために一度だけ呼ぶ
+                            st.rerun()
+                    else:
+                        # 選択がクリアされた場合、フラグをリセット
+                        st.session_state.last_semantic_map_selection = None
+                else:
+                    # 選択がない場合もフラグをリセット
+                    st.session_state.last_semantic_map_selection = None
 
                 st.info(
                     "💡 **マップの見方**\n\n"
@@ -411,12 +409,12 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
                     "- **点の色** = 関連性スコア（赤=高、黄=中、青=低）\n"
                     "- **点の大きさ** = 被リンク数（大きいほど重要なハブ論文）\n"
                     "- **ホバー** = タイトルと詳細情報を表示\n"
-                    "- **クリック** = 論文を選択してアクションボタンを表示"
+                    "- **クリック** = 論文リストの詳細にジャンプ"
                 )
             else:
                 st.info("マップを表示するには2件以上の論文が必要です")
         else:
-            st.info("👆 上のボタンを押すとセマンティック・マップが生成されます。\n\n⚠️ 大量の論文（1000件以上）の場合、生成に時間がかかることがあります。")
+            st.info("👆 上のボタンを押すとセマンティック・マップが生成されます。")
 
 
 def main():
@@ -428,10 +426,18 @@ def main():
 
     st.title("📚 PubMed論文検索自動化ツール")
     st.markdown("""
-    このツールは、起点となる論文から関連論文を自動的に探索し、
-    Gemini AIを使ってあなたが探している論文を見つけます。
+    起点となる論文から関連論文を自動的に探索し、Gemini AIがあなたの研究テーマに合った論文を見つけます。
 
-    **プロジェクト機能**: 評価済み論文をキャッシュして、重複評価を防止し、API コストを削減します。
+    ### 🚀 主な機能
+
+    - **自動探索**: Similar articles と Cited by を再帰的に探索
+    - **AI評価**: Gemini がアブストラクトと研究テーマの関連性を自動評価（スコア付き）
+    - **プロジェクト管理**: 評価済み論文をキャッシュして重複評価を防止、API コスト削減
+    - **可視化**: ネットワークグラフとセマンティックマップで論文の関係性を直感的に把握
+    - **Notion連携**: 評価した論文を自動でNotionデータベースに登録
+    - **メモ機能**: 論文ごとにコメントを保存して研究ノートとして活用
+
+    💡 **使い方**: サイドバーで設定後、起点論文（PMID/URL/DOI）と研究テーマを入力して検索開始！
     """)
 
     # プロジェクトマネージャーを初期化
@@ -441,102 +447,13 @@ def main():
     with st.sidebar:
         st.header("⚙️ 設定")
 
-        # Gemini API Key
-        st.subheader("API設定")
-
-        # API Keyの初期値を取得
-        env_api_key = os.getenv("GEMINI_API_KEY", "")
-
-        api_key = st.text_input(
-            "Gemini API Key",
-            type="password",
-            value=env_api_key,
-            help="https://makersuite.google.com/app/apikey から取得"
-        )
-
-        # API Keyの検証
-        if not api_key:
-            st.error("⚠️ Gemini API Keyを入力してください")
-            st.info("API Keyは [こちら](https://makersuite.google.com/app/apikey) から取得できます")
-            st.stop()
-
-        if not is_valid_api_key(api_key):
-            st.error("⚠️ 無効なAPI Keyです")
-            st.warning(
-                "デフォルトまたはプレースホルダーのAPI Keyが設定されています。\n\n"
-                "正しいAPI Keyを入力してください。\n\n"
-                "API Keyは [こちら](https://makersuite.google.com/app/apikey) から取得できます"
-            )
-            st.stop()
-
-        # API Keyが環境変数と異なる場合、保存ボタンを表示
-        if api_key != env_api_key:
-            if st.button("💾 API Keyを.envに保存", help="入力したAPI Keyを.envファイルに保存します"):
-                if save_api_key_to_env(api_key):
-                    st.success("✅ API Keyを.envファイルに保存しました")
-                    st.info("次回起動時から、この API Key が自動的に読み込まれます")
-                else:
-                    st.error("❌ API Keyの保存に失敗しました")
-
-        # Geminiモデル選択
-        gemini_model = st.selectbox(
-            "Geminiモデル",
-            options=GeminiEvaluator.AVAILABLE_MODELS,
-            index=GeminiEvaluator.AVAILABLE_MODELS.index(GeminiEvaluator.DEFAULT_MODEL),
-            help="使用するGeminiモデルを選択。flash系は高速・低コスト、pro系は高精度"
-        )
-
-        st.divider()
-
-        # Notion API設定（オプション）
-        st.subheader("Notion連携（オプション）")
-
-        use_notion = st.checkbox(
-            "Notion連携を有効にする",
-            value=False,
-            help="Notionデータベースと連携して、論文の登録状態をチェック・スコアを更新"
-        )
-
-        notion_api_key = None
-        notion_database_id = None
-
-        if use_notion:
-            notion_api_key = st.text_input(
-                "Notion API Key",
-                type="password",
-                value=os.getenv("NOTION_API_KEY", ""),
-                help="https://www.notion.so/my-integrations から取得"
-            )
-
-            notion_database_id = st.text_input(
-                "Notion Database ID",
-                value=os.getenv("NOTION_DATABASE_ID", ""),
-                help="データベースURLから取得: https://www.notion.so/{workspace}/{database_id}?v=..."
-            )
-
-            if not notion_api_key or not notion_database_id:
-                st.warning("Notion API KeyとDatabase IDの両方を入力してください")
-
-        st.divider()
-
-        # 京大リンク設定
-        st.subheader("リンク設定")
-
-        use_kyoto_links = st.checkbox(
-            "京都大学のリンクを使用",
-            value=os.getenv("USE_KYOTO_UNIVERSITY_LINKS", "false").lower() == "true",
-            help="京都大学のプロキシを経由してDOIリンクにアクセスします。京大アカウントでログインしている場合、論文PDFに直接アクセスできます。"
-        )
-
-        st.divider()
-
-        # プロジェクト選択
+        # 1. プロジェクト選択（最上部）
         st.subheader("📁 プロジェクト")
 
         project_mode = st.radio(
             "モード選択",
-            ["新規プロジェクト作成", "既存プロジェクトに追加"],
-            help="新規作成するか、既存プロジェクトに論文を追加するか選択"
+            ["新規プロジェクト作成", "既存プロジェクトを開く"],
+            help="新規作成するか、既存プロジェクトを開くか選択"
         )
 
         project = None
@@ -769,6 +686,92 @@ def main():
             help="有効にすると、PMIDがない論文（DOIのみの論文）を除外します"
         )
 
+        st.divider()
+
+        # 5. 外部連携
+        st.subheader("外部連携")
+
+        # Notion連携
+        use_notion = st.checkbox(
+            "Notion連携を有効にする",
+            value=False,
+            help="Notionデータベースと連携して、論文の登録状態をチェック・スコアを更新"
+        )
+
+        notion_api_key = None
+        notion_database_id = None
+
+        if use_notion:
+            notion_api_key = st.text_input(
+                "Notion API Key",
+                type="password",
+                value=os.getenv("NOTION_API_KEY", ""),
+                help="https://www.notion.so/my-integrations から取得"
+            )
+
+            notion_database_id = st.text_input(
+                "Notion Database ID",
+                value=os.getenv("NOTION_DATABASE_ID", ""),
+                help="データベースURLから取得: https://www.notion.so/{workspace}/{database_id}?v=..."
+            )
+
+            if not notion_api_key or not notion_database_id:
+                st.warning("Notion API KeyとDatabase IDの両方を入力してください")
+
+        # 京大リンク設定
+        use_kyoto_links = st.checkbox(
+            "京都大学のリンクを使用",
+            value=os.getenv("USE_KYOTO_UNIVERSITY_LINKS", "false").lower() == "true",
+            help="京都大学のプロキシを経由してDOIリンクにアクセスします。京大アカウントでログインしている場合、論文PDFに直接アクセスできます。"
+        )
+
+        st.divider()
+
+        # 6. API設定（最下部）
+        st.subheader("API設定")
+
+        # API Keyの初期値を取得
+        env_api_key = os.getenv("GEMINI_API_KEY", "")
+
+        api_key = st.text_input(
+            "Gemini API Key",
+            type="password",
+            value=env_api_key,
+            help="https://makersuite.google.com/app/apikey から取得"
+        )
+
+        # API Keyの検証
+        if not api_key:
+            st.error("⚠️ Gemini API Keyを入力してください")
+            st.info("API Keyは [こちら](https://makersuite.google.com/app/apikey) から取得できます")
+            st.stop()
+
+        if not is_valid_api_key(api_key):
+            st.error("⚠️ 無効なAPI Keyです")
+            st.warning(
+                "デフォルトまたはプレースホルダーのAPI Keyが設定されています。\n\n"
+                "正しいAPI Keyを入力してください。\n\n"
+                "API Keyは [こちら](https://makersuite.google.com/app/apikey) から取得できます"
+            )
+            st.stop()
+
+        # API Keyが環境変数と異なる場合、保存ボタンを表示
+        if api_key != env_api_key:
+            if st.button("💾 API Keyを.envに保存", help="入力したAPI Keyを.envファイルに保存します"):
+                if save_api_key_to_env(api_key):
+                    st.success("✅ API Keyを.envファイルに保存しました")
+                    st.info("次回起動時から、この API Key が自動的に読み込まれます")
+                else:
+                    st.error("❌ API Keyの保存に失敗しました")
+
+        # Geminiモデル選択
+        gemini_model = st.selectbox(
+            "Geminiモデル",
+            options=GeminiEvaluator.AVAILABLE_MODELS,
+            index=GeminiEvaluator.AVAILABLE_MODELS.index(GeminiEvaluator.DEFAULT_MODEL),
+            help="使用するGeminiモデルを選択。flash系は高速・低コスト、pro系は高精度"
+        )
+
     # ネットワークグラフからのクリックによる検索開始の処理
     default_start_pmid = ""
     auto_start_search = False
@@ -787,10 +790,10 @@ def main():
         st.subheader("📝 入力")
 
         start_pmid = st.text_input(
-            "起点論文のPMIDまたはURL",
+            "起点論文のPMID / URL / DOI",
             value=default_start_pmid,
-            placeholder="例: 12345678 または https://pubmed.ncbi.nlm.nih.gov/12345678/",
-            help="探索を開始する論文のPubMed IDまたはURL"
+            placeholder="例: 12345678、https://pubmed.ncbi.nlm.nih.gov/12345678/、10.1038/nature12345",
+            help="探索を開始する論文のPubMed ID、URL、またはDOI（DOI形式: 10.xxxx/yyyy）"
         )
 
     with col2:
@@ -1283,114 +1286,40 @@ def display_project_articles(
 
                     # イベントの保存処理（最重要！）
                     # ダブルクリックで expand されると event['data']['node_ids'] にIDが入る
+                    # 無限ループを防ぐため、前回処理したIDを記録
+                    if 'last_network_graph_selection' not in st.session_state:
+                        st.session_state.last_network_graph_selection = None
+
                     if event and "data" in event and "node_ids" in event["data"] and len(event["data"]["node_ids"]) > 0:
                         clicked_id = event["data"]["node_ids"][0]
 
-                        # Session Stateに保存（st.rerun()は呼ばずに自然な更新を待つ）
-                        st.session_state.selected_article_id = clicked_id
+                        # 前回と同じ選択なら処理をスキップ（無限ループ防止）
+                        if st.session_state.last_network_graph_selection != clicked_id:
+                            # Session Stateに保存して、該当論文のページに移動
+                            st.session_state.selected_article_id = clicked_id
+                            st.session_state.last_network_graph_selection = clicked_id
 
-                    # ノード選択の表示（グラフの直下に配置）
-                    current_article_id = st.session_state.get("selected_article_id")
-                    show_details = st.session_state.get("show_article_details", False)
+                            # 選択された論文が含まれるページに移動
+                            global_index = next((i for i, a in enumerate(filtered_articles) if a["article_id"] == clicked_id), 0)
+                            target_page = (global_index // 20) + 1  # 20件/ページ（ITEMS_PER_PAGE）
+                            st.session_state.project_page = target_page
 
-                    if current_article_id and not show_details:
-                        # クリックされた論文を検索
-                        clicked_article = None
-                        for article in filtered_articles:
-                            if article["article_id"] == current_article_id:
-                                clicked_article = article
-                                break
+                            # ページを再描画して論文詳細へジャンプ
+                            st.rerun()
+                    else:
+                        # イベントがない場合、フラグをリセット
+                        st.session_state.last_network_graph_selection = None
 
-                        if clicked_article:
-                            # 簡潔な通知とアクションボタン（スクロールしない）
-                            st.success(f"✅ 選択: {clicked_article.get('title', '不明')[:60]}...")
-
-                            col1, col2, col3 = st.columns([1, 1, 2])
-
-                            with col1:
-                                if st.button("📄 詳細を見る", key=f"show_details_{current_article_id}", use_container_width=True):
-                                    st.session_state.show_article_details = True
-                                    st.rerun()
-
-                            with col2:
-                                pmid = clicked_article.get("pmid")
-                                doi = clicked_article.get("doi")
-                                if pmid or doi:
-                                    start_id = pmid if pmid else doi
-                                    if st.button("🚀 この論文で検索", key=f"search_quick_{current_article_id}", use_container_width=True):
-                                        st.session_state.clicked_article_for_search = {
-                                            "id": start_id,
-                                            "title": clicked_article.get("title", ""),
-                                            "is_pmid": pmid is not None,
-                                            "auto_start": True
-                                        }
-                                        st.rerun()
-
-                    # 詳細セクション（ボタンをクリックしたときだけ表示）
-                    if show_details and current_article_id:
-                        clicked_article = None
-                        for article in filtered_articles:
-                            if article["article_id"] == current_article_id:
-                                clicked_article = article
-                                break
-
-                        if clicked_article:
-                            st.divider()
-                            st.markdown("### 📝 選択した論文の詳細")
-
-                            # 論文情報を詳細に表示
-                            pmid = clicked_article.get("pmid")
-                            doi = clicked_article.get("doi")
-                            display_id = f"PMID: {pmid}" if pmid else f"DOI: {doi}"
-
-                            st.markdown(f"**{clicked_article.get('title', '不明')}**")
-                            st.caption(f"{display_id} | スコア: {clicked_article.get('relevance_score', 0)}点")
-
-                            # 閉じるボタン
-                            if st.button("✕ 閉じる", key=f"close_details_{current_article_id}"):
-                                st.session_state.show_article_details = False
-                                st.rerun()
-
-                            # 追加のアクション
-                            col1, col2 = st.columns(2)
-
-                            with col1:
-                                if st.button(
-                                    f"📄 論文リストで表示",
-                                    type="secondary",
-                                    key=f"view_in_list_{current_article_id}",
-                                    use_container_width=True
-                                ):
-                                    st.session_state.show_article_details = False
-                                    st.rerun()
-
-                            with col2:
-                                if pmid or doi:
-                                    start_id = pmid if pmid else doi
-                                    if st.button(
-                                        f"🚀 この論文を起点に検索",
-                                        type="primary",
-                                        key=f"search_from_details_{current_article_id}",
-                                        use_container_width=True
-                                    ):
-                                        st.session_state.clicked_article_for_search = {
-                                            "id": start_id,
-                                            "title": clicked_article.get("title", ""),
-                                            "is_pmid": pmid is not None,
-                                            "auto_start": True
-                                        }
-                                        st.session_state.show_article_details = False
-                                        st.rerun()
-
-                    if not current_article_id:
-                        st.info("💡 ノードを**ダブルクリック**すると、論文のアクションボタンが表示されます")
+                    # 選択されたノードを論文リストで表示（直接ジャンプ）
+                    # Session Stateは既に上で更新済み
+                    st.info("💡 ノードを**ダブルクリック**すると、論文リストの詳細にジャンプします")
 
                 except Exception as e:
                     st.error(f"ネットワークグラフの生成に失敗しました: {e}")
                     import traceback
                     st.code(traceback.format_exc())
             else:
-                st.info("👆 上のボタンを押すとネットワークグラフが生成されます。\n\n⚠️ 大量の論文（1000件以上）の場合、生成に時間がかかることがあります。")
+                st.info("👆 上のボタンを押すとネットワークグラフが生成されます。\n\n⚠️ **注意**: 論文数が増えると生成に時間がかかります（1000件以上で数十秒〜数分）。")
 
         with tab2:
             # セマンティック・マップを表示
@@ -2097,99 +2026,32 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                     key="results_network_graph"
                 )
 
-                # ノード選択の表示
-                current_article_id = st.session_state.get("selected_article_id_results")
-                show_details = st.session_state.get("show_article_details_results", False)
+                # 選択された論文を論文リストで表示（直接ジャンプ）
+                # 無限ループを防ぐため、前回処理したIDを記録
+                if 'last_results_network_graph_selection' not in st.session_state:
+                    st.session_state.last_results_network_graph_selection = None
 
                 if event and "data" in event and "node_ids" in event["data"] and len(event["data"]["node_ids"]) > 0:
                     clicked_id = event["data"]["node_ids"][0]
-                    st.session_state.selected_article_id_results = clicked_id
 
-                if current_article_id and not show_details:
-                    clicked_article = None
-                    for article in filtered_articles:
-                        if article["article_id"] == current_article_id:
-                            clicked_article = article
-                            break
+                    # 前回と同じ選択なら処理をスキップ（無限ループ防止）
+                    if st.session_state.last_results_network_graph_selection != clicked_id:
+                        # Session Stateに保存（検索結果画面では selected_article_id を使用）
+                        st.session_state.selected_article_id = clicked_id
+                        st.session_state.last_results_network_graph_selection = clicked_id
 
-                    if clicked_article:
-                        st.success(f"✅ 選択: {clicked_article.get('title', '不明')[:60]}...")
+                        # 選択された論文が含まれるページに移動
+                        global_index = next((i for i, a in enumerate(filtered_articles) if a["article_id"] == clicked_id), 0)
+                        target_page = (global_index // 20) + 1  # 20件/ページ
+                        st.session_state.results_page = target_page
 
-                        col1, col2, col3 = st.columns([1, 1, 2])
+                        # ページを再描画して論文詳細へジャンプ
+                        st.rerun()
+                else:
+                    # イベントがない場合、フラグをリセット
+                    st.session_state.last_results_network_graph_selection = None
 
-                        with col1:
-                            if st.button("📄 詳細を見る", key=f"results_show_details_{current_article_id}", use_container_width=True):
-                                st.session_state.show_article_details_results = True
-                                st.rerun()
-
-                        with col2:
-                            pmid = clicked_article.get("pmid")
-                            doi = clicked_article.get("doi")
-                            if pmid or doi:
-                                start_id = pmid if pmid else doi
-                                if st.button("🚀 この論文で検索", key=f"results_search_quick_{current_article_id}", use_container_width=True):
-                                    st.session_state.clicked_article_for_search = {
-                                        "id": start_id,
-                                        "title": clicked_article.get("title", ""),
-                                        "is_pmid": pmid is not None,
-                                        "auto_start": True
-                                    }
-                                    st.rerun()
-
-                if show_details and current_article_id:
-                    clicked_article = None
-                    for article in filtered_articles:
-                        if article["article_id"] == current_article_id:
-                            clicked_article = article
-                            break
-
-                    if clicked_article:
-                        st.divider()
-                        st.markdown("### 📝 選択した論文の詳細")
-
-                        pmid = clicked_article.get("pmid")
-                        doi = clicked_article.get("doi")
-                        display_id = f"PMID: {pmid}" if pmid else f"DOI: {doi}"
-
-                        st.markdown(f"**{clicked_article.get('title', '不明')}**")
-                        st.caption(f"{display_id} | スコア: {clicked_article.get('relevance_score', 0)}点")
-
-                        if st.button("✕ 閉じる", key=f"results_close_details_{current_article_id}"):
-                            st.session_state.show_article_details_results = False
-                            st.rerun()
-
-                        col1, col2 = st.columns(2)
-
-                        with col1:
-                            if st.button(
-                                f"📄 論文リストで表示",
-                                type="secondary",
-                                key=f"results_view_in_list_{current_article_id}",
-                                use_container_width=True
-                            ):
-                                st.session_state.show_article_details_results = False
-                                st.rerun()
-
-                        with col2:
-                            if pmid or doi:
-                                start_id = pmid if pmid else doi
-                                if st.button(
-                                    f"🚀 この論文を起点に検索",
-                                    type="primary",
-                                    key=f"results_search_from_details_{current_article_id}",
-                                    use_container_width=True
-                                ):
-                                    st.session_state.clicked_article_for_search = {
-                                        "id": start_id,
-                                        "title": clicked_article.get("title", ""),
-                                        "is_pmid": pmid is not None,
-                                        "auto_start": True
-                                    }
-                                    st.session_state.show_article_details_results = False
-                                    st.rerun()
-
-                if not current_article_id:
-                    st.info("💡 ノードを**ダブルクリック**すると、論文のアクションボタンが表示されます")
+                st.info("💡 ノードを**ダブルクリック**すると、論文リストの詳細にジャンプします")
 
             except Exception as e:
                 st.error(f"ネットワークグラフの生成に失敗しました: {e}")
