@@ -76,8 +76,9 @@ class EmbeddingManager:
             texts = []
             for article in batch:
                 # アブストラクトを取得、なければタイトルを使用
-                abstract = article.get("abstract", "").strip()
-                title = article.get("title", "").strip()
+                # None対策: get()で取得した値がNoneの場合も空文字列として扱う
+                abstract = (article.get("abstract") or "").strip()
+                title = (article.get("title") or "").strip()
 
                 if abstract:
                     texts.append(abstract)

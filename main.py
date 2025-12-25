@@ -11,9 +11,8 @@ from article_finder import ArticleFinder
 from project_manager import ProjectManager
 from gemini_evaluator import GeminiEvaluator
 from embedding_manager import EmbeddingManager
-from pyvis.network import Network
+from st_link_analysis import st_link_analysis, NodeStyle, EdgeStyle, Event
 import streamlit.components.v1 as components
-import tempfile
 import plotly.express as px
 
 
@@ -97,136 +96,93 @@ def is_valid_api_key(api_key: str) -> bool:
     return True
 
 
-def generate_network_graph(articles: List[Dict]) -> str:
+@st.cache_data
+def generate_network_graph(articles: List[Dict]) -> Dict:
     """
-    論文のネットワークグラフを生成
+    論文のネットワークグラフを生成（st-link-analysis用）
 
     Args:
         articles: 論文リスト
 
     Returns:
-        生成されたHTMLファイルのパス
+        st-link-analysisで使用する elements 辞書
     """
-    # PyVisネットワークを作成
-    net = Network(
-        height="600px",
-        width="100%",
-        bgcolor="#ffffff",
-        font_color="#000000",
-        directed=True
-    )
-
     # ノードとエッジのデータを準備
-    article_dict = {a["article_id"]: a for a in articles}
+    # IDを確実に文字列型にするために辞書のキーも文字列化
+    article_dict = {str(a["article_id"]): a for a in articles}
 
-    # 被リンク数の最大値を取得（ノードサイズ正規化用）
-    max_link_count = max([len(a.get("mentioned_by", [])) for a in articles]) if articles else 1
-    if max_link_count == 0:
-        max_link_count = 1
+    nodes = []
+    edges = []
+    edge_id = 0
 
     # 各論文をノードとして追加
     for article in articles:
-        article_id = article["article_id"]
+        article_id = str(article["article_id"])  # IDを文字列型に強制変換
         title = article.get("title", "不明なタイトル")
         relevance_score = article.get("relevance_score", 0)
         mentioned_by = article.get("mentioned_by", [])
         link_count = len(mentioned_by)
-
-        # ノードサイズ: 被リンク数に比例（最小10、最大50）
-        base_size = 10
-        max_size = 50
-        if max_link_count > 0:
-            node_size = base_size + (link_count / max_link_count) * (max_size - base_size)
-        else:
-            node_size = base_size
-
-        # ノードの色: relevance_scoreでヒートマップ化
-        # 赤(高スコア) → 黄 → 青(低スコア)
-        if relevance_score >= 70:
-            # 70-100: 赤系
-            intensity = int(255 * (100 - relevance_score) / 30)
-            color = f"rgb(255, {intensity}, {intensity})"
-        elif relevance_score >= 40:
-            # 40-69: 黄系
-            intensity = int(255 * (relevance_score - 40) / 30)
-            color = f"rgb(255, 255, {255 - intensity})"
-        else:
-            # 0-39: 青系
-            intensity = int(255 * (40 - relevance_score) / 40)
-            color = f"rgb({255 - intensity}, {255 - intensity}, 255)"
 
         # PMID/DOIを取得
         pmid = article.get("pmid", "")
         doi = article.get("doi", "")
         display_id = f"PMID:{pmid}" if pmid else f"DOI:{doi}"
 
-        # ホバー時のラベル
-        label = f"{display_id}\nScore: {relevance_score}\nLinks: {link_count}"
-        hover_title = f"{title}\n{label}"
+        # スコアに応じたラベルを設定（色分け用・5段階）
+        if relevance_score >= 81:
+            score_label = "EXCELLENT"  # 81-100: 濃い赤
+        elif relevance_score >= 61:
+            score_label = "GOOD"  # 61-80: オレンジ
+        elif relevance_score >= 41:
+            score_label = "MODERATE"  # 41-60: 黄色
+        elif relevance_score >= 21:
+            score_label = "FAIR"  # 21-40: 薄い青
+        else:
+            score_label = "POOR"  # 1-20: 濃い青
 
-        # ノードを追加
-        net.add_node(
-            article_id,
-            label=display_id,
-            title=hover_title,
-            size=node_size,
-            color=color,
-            font={"size": 12}
-        )
+        # ノードサイズを関連論文数に応じて計算（20-120の範囲）
+        # link_count を使ってサイズを動的に変更
+        node_size = 20 + min(link_count * 10, 100)  # 最小20、最大120
+
+        # ノードを追加（Cytoscape.js形式）
+        # サイドパネルに表示する情報を最小限に
+        nodes.append({
+            "data": {
+                "id": article_id,
+                "label": score_label,
+                "name": title[:80] + "..." if len(title) > 80 else title,  # タイトルを表示（80文字まで）
+                "score": relevance_score,
+                "links": link_count,
+                "pmid": pmid if pmid else "-",
+                "doi": doi if doi else "-"
+            },
+            "style": {
+                "width": node_size,
+                "height": node_size
+            }
+        })
 
     # エッジを追加（親 → 子）
     for article in articles:
-        article_id = article["article_id"]
+        article_id = str(article["article_id"])  # IDを文字列型に強制変換
         mentioned_by = article.get("mentioned_by", [])
 
         # この論文を参照している親論文からエッジを引く
         for parent_id in mentioned_by:
+            parent_id_str = str(parent_id)  # IDを文字列型に強制変換
             # 親論文がフィルタ後のリストに存在する場合のみエッジを追加
-            if parent_id in article_dict:
-                net.add_edge(parent_id, article_id)
+            if parent_id_str in article_dict:
+                edges.append({
+                    "data": {
+                        "id": str(edge_id),
+                        "source": parent_id_str,
+                        "target": article_id,
+                        "label": "CITES"
+                    }
+                })
+                edge_id += 1
 
-    # 物理演算の設定
-    net.set_options("""
-    {
-        "physics": {
-            "enabled": true,
-            "barnesHut": {
-                "gravitationalConstant": -8000,
-                "centralGravity": 0.3,
-                "springLength": 95,
-                "springConstant": 0.04
-            },
-            "stabilization": {
-                "iterations": 150
-            }
-        },
-        "edges": {
-            "arrows": {
-                "to": {
-                    "enabled": true,
-                    "scaleFactor": 0.5
-                }
-            },
-            "color": {
-                "color": "#848484",
-                "highlight": "#000000"
-            },
-            "smooth": {
-                "type": "continuous"
-            }
-        },
-        "interaction": {
-            "hover": true,
-            "navigationButtons": true,
-            "keyboard": true
-        }
-    }
-    """)
-
-    # 一時ファイルとして保存
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8') as f:
-        net.save_graph(f.name)
-        return f.name
+    return {"nodes": nodes, "edges": edges}
 
 
 def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
@@ -298,104 +254,169 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
         # 全ての論文がベクトル化済み
         st.success(f"✅ 全 {total_articles} 件の論文がベクトル化済みです")
 
-        # 2次元座標がない場合は計算
-        articles_with_coords = [a for a in articles if a.get("umap_x") is not None]
-        if len(articles_with_coords) < len(articles):
-            try:
-                embedding_manager = EmbeddingManager(api_key=api_key)
-                with st.spinner("UMAP で2次元座標を計算中..."):
-                    embedding_manager.calculate_2d_coordinates(articles)
+        # セッションステートでマップ生成状態を管理
+        if 'show_semantic_map' not in st.session_state:
+            st.session_state.show_semantic_map = False
 
-                # プロジェクトに保存
-                if project:
-                    for article in articles:
-                        project.add_article(article)
-                    project.save()
+        # マップ生成ボタン
+        button_label = "🔄 マップを更新" if st.session_state.show_semantic_map else "🔮 セマンティック・マップを生成"
 
-                st.rerun()
-            except Exception as e:
-                st.error(f"座標計算中にエラーが発生しました: {e}")
-                return
+        if st.button(button_label, type="primary", use_container_width=True, key="generate_semantic_map_btn"):
+            st.session_state.show_semantic_map = True
 
-        # マップを描画
-        if len(articles_with_coords) >= 2:
-            # Plotly 散布図用のデータフレームを作成
-            df_data = []
-            for article in articles:
-                if article.get("umap_x") is not None and article.get("umap_y") is not None:
-                    pmid = article.get("pmid", "")
-                    doi = article.get("doi", "")
-                    display_id = f"PMID:{pmid}" if pmid else f"DOI:{doi}"
+        # マップが生成済みの場合のみ表示
+        if st.session_state.show_semantic_map:
+            # 2次元座標がない場合は計算
+            articles_with_coords = [a for a in articles if a.get("umap_x") is not None]
+            if len(articles_with_coords) < len(articles):
+                try:
+                    embedding_manager = EmbeddingManager(api_key=api_key)
+                    with st.spinner("UMAP で2次元座標を計算中..."):
+                        embedding_manager.calculate_2d_coordinates(articles)
 
-                    df_data.append({
-                        "x": article["umap_x"],
-                        "y": article["umap_y"],
-                        "title": article.get("title", "")[:60] + "...",
-                        "relevance_score": article.get("relevance_score", 0),
-                        "link_count": len(article.get("mentioned_by", [])),
-                        "display_id": display_id,
-                        "full_title": article.get("title", "")
-                    })
+                    # プロジェクトに保存
+                    if project:
+                        for article in articles:
+                            project.add_article(article)
+                        project.save()
 
-            df = pd.DataFrame(df_data)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"座標計算中にエラーが発生しました: {e}")
+                    return
 
-            # Plotly 散布図を作成
-            fig = px.scatter(
-                df,
-                x="x",
-                y="y",
-                color="relevance_score",
-                size="link_count",
-                hover_data={
-                    "x": False,
-                    "y": False,
-                    "full_title": True,
-                    "display_id": True,
-                    "relevance_score": True,
-                    "link_count": True
-                },
-                color_continuous_scale=[
-                    [0.0, "rgb(100, 100, 255)"],   # 濃い青（0点）
-                    [0.39, "rgb(200, 200, 255)"],  # 薄い青（39点）
-                    [0.40, "rgb(255, 255, 100)"],  # 黄色（40点）
-                    [0.69, "rgb(255, 255, 0)"],    # 濃い黄色（69点）
-                    [0.70, "rgb(255, 150, 150)"],  # ピンク（70点）
-                    [1.0, "rgb(255, 0, 0)"]        # 濃い赤（100点）
-                ],
-                range_color=[0, 100],
-                labels={
-                    "relevance_score": "関連性スコア",
-                    "link_count": "被リンク数",
-                    "display_id": "ID",
-                    "full_title": "タイトル"
-                },
-                title="セマンティック・マップ（意味的類似性マップ）"
-            )
+            # マップを描画
+            articles_with_coords = [a for a in articles if a.get("umap_x") is not None]
+            if len(articles_with_coords) >= 2:
+                # Plotly 散布図用のデータフレームを作成
+                df_data = []
+                for article in articles:
+                    if article.get("umap_x") is not None and article.get("umap_y") is not None:
+                        pmid = article.get("pmid", "")
+                        doi = article.get("doi", "")
+                        display_id = f"PMID:{pmid}" if pmid else f"DOI:{doi}"
 
-            # レイアウト調整
-            fig.update_layout(
-                height=600,
-                xaxis_title="",
-                yaxis_title="",
-                showlegend=True,
-                hovermode='closest'
-            )
+                        df_data.append({
+                            "x": article["umap_x"],
+                            "y": article["umap_y"],
+                            "title": article.get("title", "")[:60] + "...",
+                            "relevance_score": article.get("relevance_score", 0),
+                            "link_count": len(article.get("mentioned_by", [])),
+                            "display_id": display_id,
+                            "full_title": article.get("title", "")
+                        })
 
-            # 軸の目盛りを非表示
-            fig.update_xaxes(showticklabels=False, showgrid=False)
-            fig.update_yaxes(showticklabels=False, showgrid=False)
+                df = pd.DataFrame(df_data)
 
-            st.plotly_chart(fig, use_container_width=True)
+                # Plotly 散布図を作成
+                fig = px.scatter(
+                    df,
+                    x="x",
+                    y="y",
+                    color="relevance_score",
+                    size="link_count",
+                    hover_data={
+                        "x": False,
+                        "y": False,
+                        "full_title": True,
+                        "display_id": True,
+                        "relevance_score": True,
+                        "link_count": True
+                    },
+                    color_continuous_scale=[
+                        [0.0, "rgb(100, 100, 255)"],   # 濃い青（0点）
+                        [0.39, "rgb(200, 200, 255)"],  # 薄い青（39点）
+                        [0.40, "rgb(255, 255, 100)"],  # 黄色（40点）
+                        [0.69, "rgb(255, 255, 0)"],    # 濃い黄色（69点）
+                        [0.70, "rgb(255, 150, 150)"],  # ピンク（70点）
+                        [1.0, "rgb(255, 0, 0)"]        # 濃い赤（100点）
+                    ],
+                    range_color=[0, 100],
+                    labels={
+                        "relevance_score": "関連性スコア",
+                        "link_count": "被リンク数",
+                        "display_id": "ID",
+                        "full_title": "タイトル"
+                    },
+                    title="セマンティック・マップ（意味的類似性マップ）"
+                )
 
-            st.info(
-                "💡 **マップの見方**\n\n"
-                "- **位置が近い論文** = 内容が意味的に類似\n"
-                "- **点の色** = 関連性スコア（赤=高、黄=中、青=低）\n"
-                "- **点の大きさ** = 被リンク数（大きいほど重要なハブ論文）\n"
-                "- **ホバー** = タイトルと詳細情報を表示"
-            )
+                # レイアウト調整
+                fig.update_layout(
+                    height=600,
+                    xaxis_title="",
+                    yaxis_title="",
+                    showlegend=True,
+                    hovermode='closest'
+                )
+
+                # 軸の目盛りを非表示
+                fig.update_xaxes(showticklabels=False, showgrid=False)
+                fig.update_yaxes(showticklabels=False, showgrid=False)
+
+                # article_idをカスタムデータとして追加（クリック時に取得するため）
+                fig.update_traces(customdata=[[a.get("article_id", "")] for a in articles_with_coords])
+
+                # クリックイベントを受け取る
+                selected = st.plotly_chart(
+                    fig,
+                    use_container_width=True,
+                    on_select="rerun",
+                    selection_mode="points",
+                    key="semantic_map_chart"
+                )
+
+                # 選択された論文のアクションボタン表示
+                if selected and "selection" in selected and "points" in selected["selection"]:
+                    points = selected["selection"]["points"]
+                    if len(points) > 0:
+                        # 最初に選択されたポイントを取得
+                        point_index = points[0]["point_index"]
+                        selected_article = articles_with_coords[point_index]
+
+                        st.success(f"✅ 選択: {selected_article.get('title', '不明')[:60]}...")
+
+                        col1, col2, col3 = st.columns([1, 1, 2])
+
+                        with col1:
+                            if st.button("📄 詳細を見る", key=f"semantic_show_details_{selected_article['article_id']}", use_container_width=True):
+                                # 論文リストで該当論文を選択状態にして、自動スクロール
+                                st.session_state.selected_article_id = selected_article["article_id"]
+
+                                # 選択された論文が含まれるページに移動
+                                # 論文リスト全体（articles）から該当論文のインデックスを探す
+                                global_index = next((i for i, a in enumerate(articles) if a["article_id"] == selected_article["article_id"]), 0)
+                                target_page = (global_index // 20) + 1  # 20件/ページ（ITEMS_PER_PAGE）
+                                st.session_state.project_page = target_page
+
+                                st.rerun()
+
+                        with col2:
+                            pmid = selected_article.get("pmid")
+                            doi = selected_article.get("doi")
+                            if pmid or doi:
+                                start_id = pmid if pmid else doi
+                                if st.button("🚀 この論文で検索", key=f"semantic_search_quick_{selected_article['article_id']}", use_container_width=True):
+                                    st.session_state.clicked_article_for_search = {
+                                        "id": start_id,
+                                        "title": selected_article.get("title", ""),
+                                        "is_pmid": pmid is not None,
+                                        "auto_start": True
+                                    }
+                                    st.rerun()
+
+                st.info(
+                    "💡 **マップの見方**\n\n"
+                    "- **位置が近い論文** = 内容が意味的に類似\n"
+                    "- **点の色** = 関連性スコア（赤=高、黄=中、青=低）\n"
+                    "- **点の大きさ** = 被リンク数（大きいほど重要なハブ論文）\n"
+                    "- **ホバー** = タイトルと詳細情報を表示\n"
+                    "- **クリック** = 論文を選択してアクションボタンを表示"
+                )
+            else:
+                st.info("マップを表示するには2件以上の論文が必要です")
         else:
-            st.info("マップを表示するには2件以上の論文が必要です")
+            st.info("👆 上のボタンを押すとセマンティック・マップが生成されます。\n\n⚠️ 大量の論文（1000件以上）の場合、生成に時間がかかることがあります。")
 
 
 def main():
@@ -748,6 +769,17 @@ def main():
             help="有効にすると、PMIDがない論文（DOIのみの論文）を除外します"
         )
 
+    # ネットワークグラフからのクリックによる検索開始の処理
+    default_start_pmid = ""
+    auto_start_search = False
+    if 'clicked_article_for_search' in st.session_state:
+        clicked_info = st.session_state.clicked_article_for_search
+        default_start_pmid = clicked_info["id"]
+        auto_start_search = clicked_info.get("auto_start", False)
+        st.info(f"📌 ネットワークグラフで選択した論文を起点に検索します：\n\n**{clicked_info['title'][:100]}...**")
+        # セッションステートをクリア
+        del st.session_state.clicked_article_for_search
+
     # メインエリア
     col1, col2 = st.columns([1, 1])
 
@@ -756,6 +788,7 @@ def main():
 
         start_pmid = st.text_input(
             "起点論文のPMIDまたはURL",
+            value=default_start_pmid,
             placeholder="例: 12345678 または https://pubmed.ncbi.nlm.nih.gov/12345678/",
             help="探索を開始する論文のPubMed IDまたはURL"
         )
@@ -803,7 +836,8 @@ def main():
     # 実行ボタン
     st.divider()
 
-    if st.button("🚀 論文検索を開始", type="primary", use_container_width=True):
+    # ボタンが押されたか、自動開始フラグが立っている場合に検索実行
+    if st.button("🚀 論文検索を開始", type="primary", use_container_width=True) or auto_start_search:
         if not start_pmid:
             st.error("起点論文のPMIDまたはURLを入力してください")
             return
@@ -1153,6 +1187,17 @@ def display_project_articles(
     if 'project_page' not in st.session_state:
         st.session_state.project_page = 1
 
+    # 選択された論文が存在する場合、そのページに自動的にジャンプ
+    if 'selected_article_id' in st.session_state:
+        selected_id = st.session_state.selected_article_id
+        for idx, article in enumerate(filtered_articles):
+            if article.get("article_id") == selected_id:
+                # 該当するページ番号を計算
+                target_page = (idx // ITEMS_PER_PAGE) + 1
+                if target_page != st.session_state.project_page:
+                    st.session_state.project_page = target_page
+                break
+
     # ページ番号が範囲外の場合は修正
     if st.session_state.project_page > total_pages and total_pages > 0:
         st.session_state.project_page = total_pages
@@ -1168,28 +1213,184 @@ def display_project_articles(
         tab1, tab2 = st.tabs(["🕸️ ネットワークグラフ", "🔮 セマンティック・マップ"])
 
         with tab1:
-            st.info("ノードの大きさ = 被リンク数、ノードの色 = 関連性スコア（赤=高、青=低）")
+            st.info(
+                "**スコア別の表示（色で区別）：**\n"
+                "🔴 81-100点（濃い赤） | 🟠 61-80点（オレンジ） | 🟡 41-60点（黄色） | 🔵 21-40点（薄い青） | 🔵 1-20点（濃い青）\n\n"
+                "矢印 = 引用関係（親論文 → 子論文）\n\n"
+                "**💡 ノードをダブルクリックで選択できます**"
+            )
 
-            try:
-                # グラフを生成
-                graph_html_path = generate_network_graph(filtered_articles)
+            # セッションステートでグラフ生成状態を管理
+            if 'show_network_graph' not in st.session_state:
+                st.session_state.show_network_graph = False
 
-                # HTMLファイルを読み込んで表示
-                with open(graph_html_path, 'r', encoding='utf-8') as f:
-                    graph_html = f.read()
+            # グラフ生成ボタン
+            button_label = "🔄 グラフを更新" if st.session_state.show_network_graph else "🕸️ ネットワークグラフを生成"
 
-                components.html(graph_html, height=620, scrolling=True)
+            if st.button(button_label, type="primary", use_container_width=True, key="generate_network_graph_btn"):
+                st.session_state.show_network_graph = True
 
-                # 一時ファイルを削除
+            # グラフが生成済みの場合のみ表示
+            if st.session_state.show_network_graph:
                 try:
-                    os.unlink(graph_html_path)
-                except:
-                    pass
+                    with st.spinner("ネットワークグラフを生成中..."):
+                        elements = generate_network_graph(filtered_articles)
 
-            except Exception as e:
-                st.error(f"ネットワークグラフの生成に失敗しました: {e}")
-                import traceback
-                st.code(traceback.format_exc())
+                    # NodeStyle と EdgeStyle を定義（5段階）
+                    # アイコンパラメータを省略して色のみで表現
+                    node_styles = [
+                        NodeStyle("EXCELLENT", "#FF2D2D", "name"),  # 81-100: 濃い赤
+                        NodeStyle("GOOD", "#FF8C42", "name"),  # 61-80: オレンジ
+                        NodeStyle("MODERATE", "#FFD700", "name"),  # 41-60: 黄色
+                        NodeStyle("FAIR", "#87CEEB", "name"),  # 21-40: 薄い青
+                        NodeStyle("POOR", "#4169E1", "name"),  # 1-20: 濃い青
+                    ]
+                    edge_styles = [
+                        EdgeStyle("CITES", directed=True, caption="label")
+                    ]
+
+                    # グラフを表示
+                    # layout は辞書形式で指定する必要がある
+                    # cose レイアウトのパラメータでノード間のスペースを調整
+                    layout_config = {
+                        "name": "cose",
+                        "animationDuration": 1000,
+                        "nodeRepulsion": 20000,  # ノード間の反発力（大きいほど離れる）
+                        "idealEdgeLength": 150,  # 理想的なエッジの長さ
+                        "nodeOverlap": 30,  # ノードの重なりを避けるための余白
+                        "gravity": 40,  # 中心への引力（小さいほど広がる）
+                        "numIter": 1000,  # 最適化の反復回数
+                    }
+
+                    event = st_link_analysis(
+                        elements,
+                        layout=layout_config,  # force-directed layout（辞書形式）
+                        node_styles=node_styles,
+                        edge_styles=edge_styles,
+                        enable_node_actions=True,  # ノードアクションを有効化
+                        key="network_graph"
+                    )
+
+                    # デバッグ: 戻り値を確認
+                    with st.expander("🔍 デバッグ情報（ネットワークグラフ）", expanded=False):
+                        st.write("Event:", event)
+                        st.write("Session State ID:", st.session_state.get("selected_article_id"))
+
+                        if event and "data" in event and "node_ids" in event["data"] and len(event["data"]["node_ids"]) > 0:
+                            st.write(f"Clicked Node ID: {event['data']['node_ids'][0]}")
+                        else:
+                            st.write("No node clicked in this event loop.")
+
+                    # イベントの保存処理（最重要！）
+                    # ダブルクリックで expand されると event['data']['node_ids'] にIDが入る
+                    if event and "data" in event and "node_ids" in event["data"] and len(event["data"]["node_ids"]) > 0:
+                        clicked_id = event["data"]["node_ids"][0]
+
+                        # Session Stateに保存（st.rerun()は呼ばずに自然な更新を待つ）
+                        st.session_state.selected_article_id = clicked_id
+
+                    # ノード選択の表示（グラフの直下に配置）
+                    current_article_id = st.session_state.get("selected_article_id")
+                    show_details = st.session_state.get("show_article_details", False)
+
+                    if current_article_id and not show_details:
+                        # クリックされた論文を検索
+                        clicked_article = None
+                        for article in filtered_articles:
+                            if article["article_id"] == current_article_id:
+                                clicked_article = article
+                                break
+
+                        if clicked_article:
+                            # 簡潔な通知とアクションボタン（スクロールしない）
+                            st.success(f"✅ 選択: {clicked_article.get('title', '不明')[:60]}...")
+
+                            col1, col2, col3 = st.columns([1, 1, 2])
+
+                            with col1:
+                                if st.button("📄 詳細を見る", key=f"show_details_{current_article_id}", use_container_width=True):
+                                    st.session_state.show_article_details = True
+                                    st.rerun()
+
+                            with col2:
+                                pmid = clicked_article.get("pmid")
+                                doi = clicked_article.get("doi")
+                                if pmid or doi:
+                                    start_id = pmid if pmid else doi
+                                    if st.button("🚀 この論文で検索", key=f"search_quick_{current_article_id}", use_container_width=True):
+                                        st.session_state.clicked_article_for_search = {
+                                            "id": start_id,
+                                            "title": clicked_article.get("title", ""),
+                                            "is_pmid": pmid is not None,
+                                            "auto_start": True
+                                        }
+                                        st.rerun()
+
+                    # 詳細セクション（ボタンをクリックしたときだけ表示）
+                    if show_details and current_article_id:
+                        clicked_article = None
+                        for article in filtered_articles:
+                            if article["article_id"] == current_article_id:
+                                clicked_article = article
+                                break
+
+                        if clicked_article:
+                            st.divider()
+                            st.markdown("### 📝 選択した論文の詳細")
+
+                            # 論文情報を詳細に表示
+                            pmid = clicked_article.get("pmid")
+                            doi = clicked_article.get("doi")
+                            display_id = f"PMID: {pmid}" if pmid else f"DOI: {doi}"
+
+                            st.markdown(f"**{clicked_article.get('title', '不明')}**")
+                            st.caption(f"{display_id} | スコア: {clicked_article.get('relevance_score', 0)}点")
+
+                            # 閉じるボタン
+                            if st.button("✕ 閉じる", key=f"close_details_{current_article_id}"):
+                                st.session_state.show_article_details = False
+                                st.rerun()
+
+                            # 追加のアクション
+                            col1, col2 = st.columns(2)
+
+                            with col1:
+                                if st.button(
+                                    f"📄 論文リストで表示",
+                                    type="secondary",
+                                    key=f"view_in_list_{current_article_id}",
+                                    use_container_width=True
+                                ):
+                                    st.session_state.show_article_details = False
+                                    st.rerun()
+
+                            with col2:
+                                if pmid or doi:
+                                    start_id = pmid if pmid else doi
+                                    if st.button(
+                                        f"🚀 この論文を起点に検索",
+                                        type="primary",
+                                        key=f"search_from_details_{current_article_id}",
+                                        use_container_width=True
+                                    ):
+                                        st.session_state.clicked_article_for_search = {
+                                            "id": start_id,
+                                            "title": clicked_article.get("title", ""),
+                                            "is_pmid": pmid is not None,
+                                            "auto_start": True
+                                        }
+                                        st.session_state.show_article_details = False
+                                        st.rerun()
+
+                    if not current_article_id:
+                        st.info("💡 ノードを**ダブルクリック**すると、論文のアクションボタンが表示されます")
+
+                except Exception as e:
+                    st.error(f"ネットワークグラフの生成に失敗しました: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+            else:
+                st.info("👆 上のボタンを押すとネットワークグラフが生成されます。\n\n⚠️ 大量の論文（1000件以上）の場合、生成に時間がかかることがあります。")
 
         with tab2:
             # セマンティック・マップを表示
@@ -1351,10 +1552,34 @@ def display_project_articles(
         st.info(f"📄 {start_idx + 1}〜{end_idx}件目を表示（全{total_articles}件中）")
 
     for i, article in enumerate(current_page_articles, start_idx + 1):
+        # 選択された論文かどうかをチェック
+        is_selected = (
+            'selected_article_id' in st.session_state and
+            st.session_state.selected_article_id == article.get("article_id")
+        )
+
+        # 選択された論文は強調表示
+        title_prefix = "📌 " if is_selected else ""
+
+        # 選択された論文にアンカーを追加
+        if is_selected:
+            st.markdown('<div id="selected-article"></div>', unsafe_allow_html=True)
+            # JavaScriptでスクロール
+            components.html("""
+                <script>
+                    setTimeout(function() {
+                        const element = window.parent.document.getElementById('selected-article');
+                        if (element) {
+                            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 100);
+                </script>
+            """, height=0)
+
         with st.expander(
-            f"[{i}] {article.get('title', 'No Title')} "
+            f"{title_prefix}[{i}] {article.get('title', 'No Title')} "
             f"(スコア: {article.get('relevance_score', 0)})",
-            expanded=(i <= 5)  # 最初の5件は展開表示
+            expanded=(i <= 5 or is_selected)  # 最初の5件または選択された論文は展開表示
         ):
             col1, col2 = st.columns([2, 1])
 
@@ -1837,19 +2062,134 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
 
             try:
                 # グラフを生成
-                graph_html_path = generate_network_graph(filtered_articles)
+                with st.spinner("ネットワークグラフを生成中..."):
+                    elements = generate_network_graph(filtered_articles)
 
-                # HTMLファイルを読み込んで表示
-                with open(graph_html_path, 'r', encoding='utf-8') as f:
-                    graph_html = f.read()
+                # NodeStyle と EdgeStyle を定義（5段階）
+                node_styles = [
+                    NodeStyle("EXCELLENT", "#FF2D2D", "name"),  # 81-100: 濃い赤
+                    NodeStyle("GOOD", "#FF8C42", "name"),  # 61-80: オレンジ
+                    NodeStyle("MODERATE", "#FFD700", "name"),  # 41-60: 黄色
+                    NodeStyle("FAIR", "#87CEEB", "name"),  # 21-40: 薄い青
+                    NodeStyle("POOR", "#4169E1", "name"),  # 1-20: 濃い青
+                ]
+                edge_styles = [
+                    EdgeStyle("CITES", directed=True, caption="label")
+                ]
 
-                components.html(graph_html, height=620, scrolling=True)
+                # レイアウト設定
+                layout_config = {
+                    "name": "cose",
+                    "animationDuration": 1000,
+                    "nodeRepulsion": 20000,
+                    "idealEdgeLength": 150,
+                    "nodeOverlap": 30,
+                    "gravity": 40,
+                    "numIter": 1000,
+                }
 
-                # 一時ファイルを削除
-                try:
-                    os.unlink(graph_html_path)
-                except:
-                    pass
+                event = st_link_analysis(
+                    elements,
+                    layout=layout_config,
+                    node_styles=node_styles,
+                    edge_styles=edge_styles,
+                    enable_node_actions=True,
+                    key="results_network_graph"
+                )
+
+                # ノード選択の表示
+                current_article_id = st.session_state.get("selected_article_id_results")
+                show_details = st.session_state.get("show_article_details_results", False)
+
+                if event and "data" in event and "node_ids" in event["data"] and len(event["data"]["node_ids"]) > 0:
+                    clicked_id = event["data"]["node_ids"][0]
+                    st.session_state.selected_article_id_results = clicked_id
+
+                if current_article_id and not show_details:
+                    clicked_article = None
+                    for article in filtered_articles:
+                        if article["article_id"] == current_article_id:
+                            clicked_article = article
+                            break
+
+                    if clicked_article:
+                        st.success(f"✅ 選択: {clicked_article.get('title', '不明')[:60]}...")
+
+                        col1, col2, col3 = st.columns([1, 1, 2])
+
+                        with col1:
+                            if st.button("📄 詳細を見る", key=f"results_show_details_{current_article_id}", use_container_width=True):
+                                st.session_state.show_article_details_results = True
+                                st.rerun()
+
+                        with col2:
+                            pmid = clicked_article.get("pmid")
+                            doi = clicked_article.get("doi")
+                            if pmid or doi:
+                                start_id = pmid if pmid else doi
+                                if st.button("🚀 この論文で検索", key=f"results_search_quick_{current_article_id}", use_container_width=True):
+                                    st.session_state.clicked_article_for_search = {
+                                        "id": start_id,
+                                        "title": clicked_article.get("title", ""),
+                                        "is_pmid": pmid is not None,
+                                        "auto_start": True
+                                    }
+                                    st.rerun()
+
+                if show_details and current_article_id:
+                    clicked_article = None
+                    for article in filtered_articles:
+                        if article["article_id"] == current_article_id:
+                            clicked_article = article
+                            break
+
+                    if clicked_article:
+                        st.divider()
+                        st.markdown("### 📝 選択した論文の詳細")
+
+                        pmid = clicked_article.get("pmid")
+                        doi = clicked_article.get("doi")
+                        display_id = f"PMID: {pmid}" if pmid else f"DOI: {doi}"
+
+                        st.markdown(f"**{clicked_article.get('title', '不明')}**")
+                        st.caption(f"{display_id} | スコア: {clicked_article.get('relevance_score', 0)}点")
+
+                        if st.button("✕ 閉じる", key=f"results_close_details_{current_article_id}"):
+                            st.session_state.show_article_details_results = False
+                            st.rerun()
+
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            if st.button(
+                                f"📄 論文リストで表示",
+                                type="secondary",
+                                key=f"results_view_in_list_{current_article_id}",
+                                use_container_width=True
+                            ):
+                                st.session_state.show_article_details_results = False
+                                st.rerun()
+
+                        with col2:
+                            if pmid or doi:
+                                start_id = pmid if pmid else doi
+                                if st.button(
+                                    f"🚀 この論文を起点に検索",
+                                    type="primary",
+                                    key=f"results_search_from_details_{current_article_id}",
+                                    use_container_width=True
+                                ):
+                                    st.session_state.clicked_article_for_search = {
+                                        "id": start_id,
+                                        "title": clicked_article.get("title", ""),
+                                        "is_pmid": pmid is not None,
+                                        "auto_start": True
+                                    }
+                                    st.session_state.show_article_details_results = False
+                                    st.rerun()
+
+                if not current_article_id:
+                    st.info("💡 ノードを**ダブルクリック**すると、論文のアクションボタンが表示されます")
 
             except Exception as e:
                 st.error(f"ネットワークグラフの生成に失敗しました: {e}")
@@ -1896,10 +2236,34 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
         st.info(f"📄 {start_idx_results + 1}〜{end_idx_results}件目を表示（全{total_articles_results}件中）")
 
     for i, article in enumerate(current_page_articles_results, start_idx_results + 1):
+        # 選択された論文かどうかをチェック
+        is_selected = (
+            'selected_article_id' in st.session_state and
+            st.session_state.selected_article_id == article.get("article_id")
+        )
+
+        # 選択された論文は強調表示
+        title_prefix = "📌 " if is_selected else ""
+
+        # 選択された論文にアンカーを追加
+        if is_selected:
+            st.markdown('<div id="selected-article"></div>', unsafe_allow_html=True)
+            # JavaScriptでスクロール
+            components.html("""
+                <script>
+                    setTimeout(function() {
+                        const element = window.parent.document.getElementById('selected-article');
+                        if (element) {
+                            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 100);
+                </script>
+            """, height=0)
+
         with st.expander(
-            f"[{i}] {article.get('title', 'No Title')} "
+            f"{title_prefix}[{i}] {article.get('title', 'No Title')} "
             f"(スコア: {article.get('relevance_score', 0)})",
-            expanded=(i <= 5)  # 最初の5件は展開表示
+            expanded=(i <= 5 or is_selected)  # 最初の5件または選択された論文は展開表示
         ):
             col1, col2 = st.columns([2, 1])
 
