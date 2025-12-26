@@ -307,40 +307,49 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
         # セッションステートでマップ生成状態を管理
         if 'show_semantic_map' not in st.session_state:
             st.session_state.show_semantic_map = False
+        if 'semantic_map_articles' not in st.session_state:
+            st.session_state.semantic_map_articles = []
 
         # マップ生成ボタン
         button_label = "🔄 マップを更新" if st.session_state.show_semantic_map else "🔮 セマンティック・マップを生成"
 
         if st.button(button_label, type="primary", use_container_width=True, key="generate_semantic_map_btn"):
             st.session_state.show_semantic_map = True
+            # ボタン押下時のarticlesをスナップショットとして保存
+            st.session_state.semantic_map_articles = articles.copy()
 
         # マップが生成済みの場合のみ表示
         if st.session_state.show_semantic_map:
+            # スナップショットを使用（フィルタ変更の影響を受けない）
+            map_articles = st.session_state.semantic_map_articles
+
             # 2次元座標がない場合は計算
-            articles_with_coords = [a for a in articles if a.get("umap_x") is not None]
-            if len(articles_with_coords) < len(articles):
+            articles_with_coords = [a for a in map_articles if a.get("umap_x") is not None]
+            if len(articles_with_coords) < len(map_articles):
                 try:
                     embedding_manager = EmbeddingManager(api_key=api_key)
                     with st.spinner("UMAP で2次元座標を計算中..."):
-                        embedding_manager.calculate_2d_coordinates(articles)
+                        embedding_manager.calculate_2d_coordinates(map_articles)
 
                     # プロジェクトに保存
                     if project:
-                        for article in articles:
+                        for article in map_articles:
                             project.add_article(article)
                         project.save()
 
+                    # スナップショットを更新
+                    st.session_state.semantic_map_articles = map_articles
                     st.rerun()
                 except Exception as e:
                     st.error(f"座標計算中にエラーが発生しました: {e}")
                     return
 
             # マップを描画
-            articles_with_coords = [a for a in articles if a.get("umap_x") is not None]
+            articles_with_coords = [a for a in map_articles if a.get("umap_x") is not None]
             if len(articles_with_coords) >= 2:
                 # Plotly 散布図用のデータフレームを作成
                 df_data = []
-                for article in articles:
+                for article in map_articles:
                     if article.get("umap_x") is not None and article.get("umap_y") is not None:
                         pmid = article.get("pmid", "")
                         doi = article.get("doi", "")
@@ -1282,18 +1291,23 @@ def display_project_articles(
             # セッションステートでグラフ生成状態を管理
             if 'show_network_graph' not in st.session_state:
                 st.session_state.show_network_graph = False
+            if 'network_graph_articles' not in st.session_state:
+                st.session_state.network_graph_articles = []
 
             # グラフ生成ボタン
             button_label = "🔄 グラフを更新" if st.session_state.show_network_graph else "🕸️ ネットワークグラフを生成"
 
             if st.button(button_label, type="primary", use_container_width=True, key="generate_network_graph_btn"):
                 st.session_state.show_network_graph = True
+                # ボタン押下時のfiltered_articlesをスナップショットとして保存
+                st.session_state.network_graph_articles = filtered_articles.copy()
 
             # グラフが生成済みの場合のみ表示
             if st.session_state.show_network_graph:
                 try:
                     with st.spinner("ネットワークグラフを生成中..."):
-                        elements = generate_network_graph(filtered_articles)
+                        # スナップショットからグラフを生成（フィルタ変更の影響を受けない）
+                        elements = generate_network_graph(st.session_state.network_graph_articles)
 
                     # NodeStyle と EdgeStyle を定義（5段階）
                     # アイコンパラメータを省略して色のみで表現
