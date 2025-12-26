@@ -1766,6 +1766,16 @@ def display_project_articles(
                     else:
                         st.error("削除に失敗しました")
 
+            # ページトップへ戻るボタン
+            st.markdown(
+                '<div style="text-align: right; margin-top: 10px;">'
+                '<a href="#article-list-top" style="text-decoration: none;">'
+                '<button style="background-color: #f0f2f6; border: 1px solid #e0e0e0; '
+                'padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px;">'
+                '↑ ページトップへ</button></a></div>',
+                unsafe_allow_html=True
+            )
+
 
 def run_search(
     api_key: str,
@@ -2107,6 +2117,8 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                 st.code(traceback.format_exc())
 
     # 論文リストを表示
+    # ページトップアンカー
+    st.markdown('<div id="article-list-top-results"></div>', unsafe_allow_html=True)
     st.subheader("📄 論文リスト")
 
     # ページネーションコントロール
@@ -2325,6 +2337,16 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                         st.rerun()
                     else:
                         st.warning("この論文はプロジェクトに保存されていません")
+
+            # ページトップへ戻るボタン
+            st.markdown(
+                '<div style="text-align: right; margin-top: 10px;">'
+                '<a href="#article-list-top-results" style="text-decoration: none;">'
+                '<button style="background-color: #f0f2f6; border: 1px solid #e0e0e0; '
+                'padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px;">'
+                '↑ ページトップへ</button></a></div>',
+                unsafe_allow_html=True
+            )
 
     st.divider()
 
