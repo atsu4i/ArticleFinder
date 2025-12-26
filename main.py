@@ -1222,6 +1222,40 @@ def display_project_articles(
             help="引用・類似を問わず、他の論文から検出された回数の最小値"
         )
 
+    # 出版年フィルタ（2列目の行）
+    # 論文データから年の範囲を取得
+    pub_years = [a.get("pub_year") for a in articles if a.get("pub_year") is not None]
+    if pub_years:
+        min_year = min(pub_years)
+        max_year = max(pub_years)
+
+        col5, col6 = st.columns(2)
+
+        with col5:
+            start_year = st.slider(
+                "出版年（開始）",
+                min_value=min_year,
+                max_value=max_year,
+                value=min_year,
+                step=1,
+                key="project_filter_start_year",
+                help="この年以降に出版された論文を表示"
+            )
+
+        with col6:
+            end_year = st.slider(
+                "出版年（終了）",
+                min_value=min_year,
+                max_value=max_year,
+                value=max_year,
+                step=1,
+                key="project_filter_end_year",
+                help="この年以前に出版された論文を表示"
+            )
+    else:
+        start_year = None
+        end_year = None
+
     # 論文リストをフィルタ
     filtered_articles = articles
 
@@ -1245,6 +1279,13 @@ def display_project_articles(
         a for a in filtered_articles
         if a.get("relevance_score", 0) >= min_score_filter
     ]
+
+    # 出版年フィルタ
+    if start_year is not None and end_year is not None:
+        filtered_articles = [
+            a for a in filtered_articles
+            if a.get("pub_year") is not None and start_year <= a.get("pub_year") <= end_year
+        ]
 
     # ページネーション設定
     ITEMS_PER_PAGE = 100
@@ -2021,6 +2062,40 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
             help="引用・類似を問わず、他の論文から検出された回数の最小値"
         )
 
+    # 出版年フィルタ（2列目の行）
+    # 論文データから年の範囲を取得
+    pub_years_results = [a.get("pub_year") for a in articles if a.get("pub_year") is not None]
+    if pub_years_results:
+        min_year_results = min(pub_years_results)
+        max_year_results = max(pub_years_results)
+
+        col6, col7 = st.columns(2)
+
+        with col6:
+            start_year_results = st.slider(
+                "出版年（開始）",
+                min_value=min_year_results,
+                max_value=max_year_results,
+                value=min_year_results,
+                step=1,
+                key="results_filter_start_year",
+                help="この年以降に出版された論文を表示"
+            )
+
+        with col7:
+            end_year_results = st.slider(
+                "出版年（終了）",
+                min_value=min_year_results,
+                max_value=max_year_results,
+                value=max_year_results,
+                step=1,
+                key="results_filter_end_year",
+                help="この年以前に出版された論文を表示"
+            )
+    else:
+        start_year_results = None
+        end_year_results = None
+
     # 論文リストをフィルタ
     filtered_articles = articles
 
@@ -2043,6 +2118,13 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
         a for a in filtered_articles
         if a.get("relevance_score", 0) >= min_score_filter
     ]
+
+    # 出版年フィルタ
+    if start_year_results is not None and end_year_results is not None:
+        filtered_articles = [
+            a for a in filtered_articles
+            if a.get("pub_year") is not None and start_year_results <= a.get("pub_year") <= end_year_results
+        ]
 
     # ページネーション設定
     ITEMS_PER_PAGE_RESULTS = 100
