@@ -96,6 +96,54 @@ def is_valid_api_key(api_key: str) -> bool:
     return True
 
 
+def load_user_settings() -> Dict:
+    """
+    ユーザー設定を読み込む
+
+    Returns:
+        ユーザー設定の辞書
+    """
+    settings_path = os.path.join(os.path.dirname(__file__), 'user_settings.json')
+
+    # デフォルト設定
+    default_settings = {
+        'use_kyoto_links': False
+    }
+
+    try:
+        if os.path.exists(settings_path):
+            with open(settings_path, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+                # デフォルト設定とマージ（新しい設定項目への対応）
+                return {**default_settings, **settings}
+        else:
+            return default_settings
+    except Exception as e:
+        print(f"Failed to load user settings: {e}")
+        return default_settings
+
+
+def save_user_settings(settings: Dict) -> bool:
+    """
+    ユーザー設定を保存
+
+    Args:
+        settings: 保存する設定の辞書
+
+    Returns:
+        True if successfully saved, False otherwise
+    """
+    settings_path = os.path.join(os.path.dirname(__file__), 'user_settings.json')
+
+    try:
+        with open(settings_path, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"Failed to save user settings: {e}")
+        return False
+
+
 @st.cache_data
 def generate_network_graph(articles: List[Dict]) -> Dict:
     """
@@ -443,6 +491,9 @@ def main():
     # プロジェクトマネージャーを初期化
     pm = ProjectManager()
 
+    # ユーザー設定を読み込む
+    user_settings = load_user_settings()
+
     # サイドバー: 設定
     with st.sidebar:
         st.header("⚙️ 設定")
@@ -651,7 +702,7 @@ def main():
         st.markdown("**References（この論文が引用している文献）**")
         col1, col2 = st.columns([3, 2])
         with col1:
-            include_references = st.checkbox("Referencesを探索", value=False, key="include_references")
+            include_references = st.checkbox("Referencesを探索", value=True, key="include_references")
         with col2:
             max_references = st.number_input(
                 "最大数",
@@ -721,9 +772,14 @@ def main():
         # 京大リンク設定
         use_kyoto_links = st.checkbox(
             "京都大学のリンクを使用",
-            value=os.getenv("USE_KYOTO_UNIVERSITY_LINKS", "false").lower() == "true",
+            value=user_settings.get('use_kyoto_links', False),
             help="京都大学のプロキシを経由してDOIリンクにアクセスします。京大アカウントでログインしている場合、論文PDFに直接アクセスできます。"
         )
+
+        # 設定が変更されたら自動保存
+        if use_kyoto_links != user_settings.get('use_kyoto_links', False):
+            user_settings['use_kyoto_links'] = use_kyoto_links
+            save_user_settings(user_settings)
 
         st.divider()
 
