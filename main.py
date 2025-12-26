@@ -1272,6 +1272,9 @@ def display_project_articles(
     elif st.session_state.project_page < 1:
         st.session_state.project_page = 1
 
+    # ページトップアンカー（statsの上に配置）
+    st.markdown('<div id="article-list-top"></div>', unsafe_allow_html=True)
+
     st.info(f"表示件数: {len(filtered_articles)} / {len(articles)}")
 
     # 可視化（ネットワークグラフ & セマンティック・マップ）
@@ -1505,8 +1508,6 @@ def display_project_articles(
     st.divider()
 
     # 論文リスト（フィルタ後のみ表示）
-    # ページトップアンカー
-    st.markdown('<div id="article-list-top"></div>', unsafe_allow_html=True)
     st.subheader("📄 論文リスト")
 
     # ページネーションコントロール
@@ -1787,8 +1788,9 @@ def display_project_articles(
             st.markdown(
                 '<div style="text-align: right; margin-top: 10px;">'
                 '<a href="#article-list-top" style="text-decoration: none;">'
-                '<button style="background-color: #f0f2f6; border: 1px solid #e0e0e0; '
-                'padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px;">'
+                '<button style="background-color: #4A90E2; color: white; border: none; '
+                'padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; '
+                'font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">'
                 '↑ ページトップへ</button></a></div>',
                 unsafe_allow_html=True
             )
@@ -2057,6 +2059,9 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
     elif st.session_state.results_page < 1:
         st.session_state.results_page = 1
 
+    # ページトップアンカー（statsの上に配置）
+    st.markdown('<div id="article-list-top-results"></div>', unsafe_allow_html=True)
+
     st.info(f"表示件数: {len(filtered_articles)} / {len(articles)}")
 
     # ネットワークグラフ表示
@@ -2134,8 +2139,6 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                 st.code(traceback.format_exc())
 
     # 論文リストを表示
-    # ページトップアンカー
-    st.markdown('<div id="article-list-top-results"></div>', unsafe_allow_html=True)
     st.subheader("📄 論文リスト")
 
     # ページネーションコントロール
@@ -2359,8 +2362,9 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
             st.markdown(
                 '<div style="text-align: right; margin-top: 10px;">'
                 '<a href="#article-list-top-results" style="text-decoration: none;">'
-                '<button style="background-color: #f0f2f6; border: 1px solid #e0e0e0; '
-                'padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px;">'
+                '<button style="background-color: #4A90E2; color: white; border: none; '
+                'padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 14px; '
+                'font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">'
                 '↑ ページトップへ</button></a></div>',
                 unsafe_allow_html=True
             )
