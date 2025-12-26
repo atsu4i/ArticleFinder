@@ -482,14 +482,14 @@ def main():
         layout="wide"
     )
 
-    st.title("📚 PubMed論文検索自動化ツール")
+    st.title("📚 学術論文検索自動化ツール")
     st.markdown("""
-    起点となる論文から関連論文を自動的に探索し、Gemini AIがあなたの研究テーマに合った論文を見つけます。
+    起点となる論文から関連論文を自動的に探索し、AIがあなたの研究テーマに合った論文を見つけます。
 
     ### 🚀 主な機能
 
-    - **自動探索**: Similar articles と Cited by を再帰的に探索
-    - **AI評価**: Gemini がアブストラクトと研究テーマの関連性を自動評価（スコア付き）
+    - **自動探索**: PubMed・OpenAlexから類似論文・引用論文・参考文献を再帰的に探索
+    - **AI評価**: Google AI (Gemini) がアブストラクトと研究テーマの関連性を自動評価（スコア付き）
     - **プロジェクト管理**: 評価済み論文をキャッシュして重複評価を防止、API コスト削減
     - **可視化**: ネットワークグラフとセマンティックマップで論文の関係性を直感的に把握
     - **Notion連携**: 評価した論文を自動でNotionデータベースに登録
@@ -800,16 +800,16 @@ def main():
         env_api_key = os.getenv("GEMINI_API_KEY", "")
 
         api_key = st.text_input(
-            "Gemini API Key",
+            "Google AI API Key (Gemini)",
             type="password",
             value=env_api_key,
-            help="https://makersuite.google.com/app/apikey から取得"
+            help="https://aistudio.google.com/app/apikey から取得"
         )
 
         # API Keyの検証
         if not api_key:
-            st.error("⚠️ Gemini API Keyを入力してください")
-            st.info("API Keyは [こちら](https://makersuite.google.com/app/apikey) から取得できます")
+            st.error("⚠️ Google AI API Keyを入力してください")
+            st.info("API Keyは [Google AI Studio](https://aistudio.google.com/app/apikey) から取得できます")
             st.stop()
 
         if not is_valid_api_key(api_key):
@@ -817,7 +817,7 @@ def main():
             st.warning(
                 "デフォルトまたはプレースホルダーのAPI Keyが設定されています。\n\n"
                 "正しいAPI Keyを入力してください。\n\n"
-                "API Keyは [こちら](https://makersuite.google.com/app/apikey) から取得できます"
+                "API Keyは [Google AI Studio](https://aistudio.google.com/app/apikey) から取得できます"
             )
             st.stop()
 
@@ -830,12 +830,12 @@ def main():
                 else:
                     st.error("❌ API Keyの保存に失敗しました")
 
-        # Geminiモデル選択
+        # 評価モデル選択
         gemini_model = st.selectbox(
-            "Geminiモデル",
+            "評価モデル (Gemini)",
             options=GeminiEvaluator.AVAILABLE_MODELS,
             index=GeminiEvaluator.AVAILABLE_MODELS.index(GeminiEvaluator.DEFAULT_MODEL),
-            help="使用するGeminiモデルを選択。flash系は高速・低コスト、pro系は高精度"
+            help="論文評価に使用するGeminiモデル。flash系は高速・低コスト、pro系は高精度"
         )
 
     # ネットワークグラフからのクリックによる検索開始の処理
@@ -1805,6 +1805,11 @@ def display_project_articles(
                 elif source_type == "起点論文":
                     st.markdown(f"**発見元:** {source_type}")
 
+                # 被発見数を表示（何件の論文から発見されたか）
+                mentioned_by = article.get('mentioned_by', [])
+                if isinstance(mentioned_by, list) and len(mentioned_by) > 0:
+                    st.markdown(f"**被発見数:** {len(mentioned_by)}件の論文から発見")
+
             # アブストラクト
             if article.get('abstract'):
                 with st.container():
@@ -2611,6 +2616,11 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                         st.markdown(f"**発見元:** PMID {source_pmid} の{source_type_jp}")
                 elif source_type == "起点論文":
                     st.markdown(f"**発見元:** {source_type}")
+
+                # 被発見数を表示（何件の論文から発見されたか）
+                mentioned_by = article.get('mentioned_by', [])
+                if isinstance(mentioned_by, list) and len(mentioned_by) > 0:
+                    st.markdown(f"**被発見数:** {len(mentioned_by)}件の論文から発見")
 
             # アブストラクト
             if article.get('abstract'):
