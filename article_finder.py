@@ -136,10 +136,24 @@ class ArticleFinder:
                 "interrupted": bool  # 停止により中断された場合True
             }
         """
-        # 起点PMIDを抽出
+        # 起点PMIDまたはDOIを抽出
         start_pmid = self.pubmed.extract_pmid_from_url(start_pmid_or_url)
-        if not start_pmid:
-            raise ValueError(f"Invalid PMID or URL: {start_pmid_or_url}")
+        start_doi = None
+        start_identifier = None
+        is_doi_start = False
+
+        if start_pmid:
+            # PMIDがある場合
+            start_identifier = start_pmid
+            is_doi_start = False
+        else:
+            # PMIDがない場合、DOIとして扱う
+            start_doi = start_pmid_or_url.strip()
+            start_identifier = start_doi
+            is_doi_start = True
+
+        if not start_identifier:
+            raise ValueError(f"Invalid PMID or DOI: {start_pmid_or_url}")
 
         # プロジェクトが指定されている場合、既存データを読み込み
         if project:
@@ -168,12 +182,13 @@ class ArticleFinder:
         session_id = datetime.now().isoformat()
 
         # 起点論文を処理
-        self._notify_progress(progress_callback, f"起点論文を処理中 (PMID: {start_pmid})")
+        identifier_type = "DOI" if is_doi_start else "PMID"
+        self._notify_progress(progress_callback, f"起点論文を処理中 ({identifier_type}: {start_identifier})")
 
         # プロジェクトにキャッシュがあるかチェック
-        if project and project.has_article(start_pmid):
+        if project and project.has_article(start_identifier):
             self._notify_progress(progress_callback, f"起点論文はキャッシュから取得")
-            start_article = project.get_article(start_pmid)
+            start_article = project.get_article(start_identifier)
 
             # スコアはキャッシュから使用するが、is_relevantは現在の閾値で再計算
             score = start_article.get("relevance_score", 0)
@@ -181,7 +196,8 @@ class ArticleFinder:
 
             # Article IDを追加（キャッシュにない場合のみ）
             if "article_id" not in start_article:
-                start_article["article_id"] = f"pmid:{start_pmid}"
+                article_id_prefix = "doi" if is_doi_start else "pmid"
+                start_article["article_id"] = f"{article_id_prefix}:{start_identifier}"
 
             # ソース情報を追加（キャッシュにない場合のみ）
             if "source_pmid" not in start_article:
@@ -194,9 +210,15 @@ class ArticleFinder:
             stats["total_skipped"] = 1
         else:
             # キャッシュにない場合は取得・評価
-            start_article = self.pubmed.get_article_info(start_pmid)
+            if is_doi_start:
+                # DOIの場合はOpenAlex APIから取得
+                start_article = self.openalex.get_article_info_by_doi(start_identifier)
+            else:
+                # PMIDの場合はPubMed APIから取得
+                start_article = self.pubmed.get_article_info(start_identifier)
+
             if not start_article:
-                raise ValueError(f"Failed to fetch article: PMID {start_pmid}")
+                raise ValueError(f"Failed to fetch article: {identifier_type} {start_identifier}")
 
             # 起点論文を評価
             self._notify_progress(progress_callback, f"起点論文を評価中")
@@ -208,8 +230,9 @@ class ArticleFinder:
                     relevance_threshold
                 )
 
+                article_id_prefix = "doi" if is_doi_start else "pmid"
                 start_article.update({
-                    "article_id": f"pmid:{start_pmid}",  # 一意なIDを追加
+                    "article_id": f"{article_id_prefix}:{start_identifier}",  # 一意なIDを追加
                     "relevance_score": evaluation["score"],
                     "is_relevant": evaluation["is_relevant"],
                     "relevance_reasoning": evaluation["reasoning"],

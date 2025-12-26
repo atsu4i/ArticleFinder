@@ -1772,9 +1772,10 @@ def display_project_articles(
             col_btn1, col_btn2 = st.columns(2)
 
             with col_btn1:
-                # DOIのみの論文は検索できない（PMIDが必要）
-                can_search = pmid is not None
-                button_help = "この論文を起点として関連論文を探索します" if can_search else "DOIのみの論文は検索の起点にできません（PMIDが必要）"
+                # PMIDまたはDOIがあれば検索可能
+                can_search = pmid is not None or doi is not None
+                start_identifier = pmid if pmid else doi
+                button_help = "この論文を起点として関連論文を探索します" if can_search else "PMIDまたはDOIが必要です"
 
                 if st.button(
                     "🔍 この論文を起点に検索",
@@ -1785,11 +1786,12 @@ def display_project_articles(
                     help=button_help
                 ):
                     # この論文を起点に検索を開始
-                    st.info(f"PMID {pmid} を起点に検索を開始します...")
+                    identifier_type = "PMID" if pmid else "DOI"
+                    st.info(f"{identifier_type} {start_identifier} を起点に検索を開始します...")
                     run_search(
                         api_key=api_key,
                         gemini_model=gemini_model,
-                        start_pmid=pmid,
+                        start_pmid=start_identifier,
                         research_theme=research_theme,
                         max_depth=max_depth,
                         max_articles=max_articles,
