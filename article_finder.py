@@ -9,6 +9,7 @@ from pubmed_api import PubMedAPI
 from gemini_evaluator import GeminiEvaluator
 from project_manager import Project
 from openalex_api import OpenAlexAPI
+from altmetric_api import AltmetricAPI
 
 
 class ArticleFinder:
@@ -68,6 +69,7 @@ class ArticleFinder:
         self.pubmed = PubMedAPI()
         self.evaluator = GeminiEvaluator(gemini_api_key, gemini_model)
         self.openalex = OpenAlexAPI(openalex_email)
+        self.altmetric = AltmetricAPI()  # Altmetric APIを初期化
 
         # Notion APIを初期化（オプション）
         self.notion = None
@@ -694,6 +696,34 @@ class ArticleFinder:
                         else:
                             article["abstract_summary_ja"] = "アブストラクトが利用できません。"
 
+                    # Altmetricメトリクスがない場合は取得
+                    if "altmetric_data" not in article or article.get("altmetric_data") is None:
+                        altmetric_metrics = None
+                        try:
+                            doi = article.get("doi")
+                            pmid = article.get("pmid")
+
+                            if doi:
+                                altmetric_metrics = self.altmetric.get_metrics_by_doi(doi)
+                            elif pmid:
+                                altmetric_metrics = self.altmetric.get_metrics_by_pmid(pmid)
+
+                            if altmetric_metrics:
+                                article["altmetric_score"] = altmetric_metrics.get("score", 0)
+                                article["altmetric_data"] = altmetric_metrics
+                                print(f"    Altmetric Score取得(キャッシュ): {altmetric_metrics.get('score', 0)}")
+                                # プロジェクトに保存
+                                if project:
+                                    project.add_article(article)
+                                    project.save()
+                            else:
+                                article["altmetric_score"] = None
+                                article["altmetric_data"] = None
+                        except Exception as e:
+                            print(f"    Altmetric取得エラー(キャッシュ): {e}")
+                            article["altmetric_score"] = None
+                            article["altmetric_data"] = None
+
                     # キャッシュから取得したことを示すフラグ
                     article["is_newly_evaluated"] = False
 
@@ -758,6 +788,29 @@ class ArticleFinder:
                             "search_session_id": session_id,  # セッションIDを記録
                             "is_newly_evaluated": True  # 新規評価されたことを示すフラグ
                         })
+
+                        # Altmetricメトリクスを取得
+                        altmetric_metrics = None
+                        try:
+                            doi = article.get("doi")
+                            pmid = article.get("pmid")
+
+                            if doi:
+                                altmetric_metrics = self.altmetric.get_metrics_by_doi(doi)
+                            elif pmid:
+                                altmetric_metrics = self.altmetric.get_metrics_by_pmid(pmid)
+
+                            if altmetric_metrics:
+                                article["altmetric_score"] = altmetric_metrics.get("score", 0)
+                                article["altmetric_data"] = altmetric_metrics
+                                print(f"    Altmetric Score取得: {altmetric_metrics.get('score', 0)}")
+                            else:
+                                article["altmetric_score"] = None
+                                article["altmetric_data"] = None
+                        except Exception as e:
+                            print(f"    Altmetric取得エラー: {e}")
+                            article["altmetric_score"] = None
+                            article["altmetric_data"] = None
 
                         # プロジェクトに保存（リアルタイム保存）
                         if project:

@@ -1687,20 +1687,13 @@ def display_project_articles(
 
                 st.markdown(f"**関連性スコア:** :{color}[{score}]")
 
-                # Altmetric Score を表示
-                altmetric_api = AltmetricAPI()
-                altmetric_metrics = None
+                # Altmetric Score を表示（キャッシュから）
+                altmetric_data = article.get('altmetric_data')
 
-                # DOIがあればDOIで、なければPMIDで取得を試みる
-                if doi and doi != 'N/A':
-                    altmetric_metrics = altmetric_api.get_metrics_by_doi(doi)
-                elif pmid and pmid != 'N/A':
-                    altmetric_metrics = altmetric_api.get_metrics_by_pmid(pmid)
-
-                if altmetric_metrics:
-                    altmetric_score = altmetric_metrics.get('score', 0)
-                    badge_url = altmetric_metrics.get('badge_url', '')
-                    details_url = altmetric_metrics.get('details_url', '')
+                if altmetric_data:
+                    altmetric_score = altmetric_data.get('score', 0)
+                    badge_url = altmetric_data.get('badge_url', '')
+                    details_url = altmetric_data.get('details_url', '')
 
                     st.markdown(f"**Altmetric Score:** {altmetric_score}")
 
@@ -1714,11 +1707,67 @@ def display_project_articles(
 
                     # メトリクスの詳細（折りたたみ）
                     with st.expander("📊 Altmetric詳細"):
-                        st.markdown(f"**Mendeley Readers:** {altmetric_metrics.get('readers_count', 0)}")
-                        st.markdown(f"**Twitter Mentions:** {altmetric_metrics.get('cited_by_tweeters_count', 0)}")
-                        st.markdown(f"**Blog Posts:** {altmetric_metrics.get('cited_by_posts_count', 0)}")
-                        st.markdown(f"**Facebook Posts:** {altmetric_metrics.get('cited_by_fbwalls_count', 0)}")
-                        st.markdown(f"**News Outlets:** {altmetric_metrics.get('cited_by_msm_count', 0)}")
+                        st.markdown(f"**Mendeley Readers:** {altmetric_data.get('readers_count', 0)}")
+                        st.markdown(f"**Twitter Mentions:** {altmetric_data.get('cited_by_tweeters_count', 0)}")
+                        st.markdown(f"**Blog Posts:** {altmetric_data.get('cited_by_posts_count', 0)}")
+                        st.markdown(f"**Facebook Posts:** {altmetric_data.get('cited_by_fbwalls_count', 0)}")
+                        st.markdown(f"**News Outlets:** {altmetric_data.get('cited_by_msm_count', 0)}")
+
+                    # 再読み込みボタン
+                    if st.button(
+                        "🔄 Altmetricを再取得",
+                        key=f"reload_altmetric_{article_id}_{i}",
+                        type="secondary",
+                        help="最新のAltmetricメトリクスを取得します"
+                    ):
+                        altmetric_api = AltmetricAPI()
+                        with st.spinner("Altmetricメトリクスを取得中..."):
+                            try:
+                                new_metrics = None
+                                if doi and doi != 'N/A':
+                                    new_metrics = altmetric_api.get_metrics_by_doi(doi)
+                                elif pmid and pmid != 'N/A':
+                                    new_metrics = altmetric_api.get_metrics_by_pmid(pmid)
+
+                                if new_metrics:
+                                    article['altmetric_score'] = new_metrics.get('score', 0)
+                                    article['altmetric_data'] = new_metrics
+                                    project.articles[article_id] = article
+                                    project.save()
+                                    st.success(f"Altmetric Scoreを更新しました: {new_metrics.get('score', 0)}")
+                                    st.rerun()
+                                else:
+                                    st.warning("Altmetricデータが見つかりませんでした")
+                            except Exception as e:
+                                st.error(f"エラーが発生しました: {e}")
+                elif altmetric_data is None:
+                    # メトリクスがない場合は取得ボタンを表示
+                    if st.button(
+                        "📊 Altmetricを取得",
+                        key=f"fetch_altmetric_{article_id}_{i}",
+                        type="secondary",
+                        help="Altmetricメトリクスを取得します"
+                    ):
+                        altmetric_api = AltmetricAPI()
+                        with st.spinner("Altmetricメトリクスを取得中..."):
+                            try:
+                                new_metrics = None
+                                if doi and doi != 'N/A':
+                                    new_metrics = altmetric_api.get_metrics_by_doi(doi)
+                                elif pmid and pmid != 'N/A':
+                                    new_metrics = altmetric_api.get_metrics_by_pmid(pmid)
+
+                                if new_metrics:
+                                    article['altmetric_score'] = new_metrics.get('score', 0)
+                                    article['altmetric_data'] = new_metrics
+                                    project.articles[article_id] = article
+                                    project.save()
+                                    st.success(f"Altmetric Scoreを取得しました: {new_metrics.get('score', 0)}")
+                                    st.rerun()
+                                else:
+                                    st.info("この論文のAltmetricデータは見つかりませんでした")
+                            except Exception as e:
+                                st.error(f"エラーが発生しました: {e}")
 
                 # Notion登録状態を表示（Notion連携を使った場合のみ）
                 if 'in_notion' in article:
@@ -2434,20 +2483,13 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                 st.markdown(f"**関連あり:** {'✅ はい' if is_relevant else '❌ いいえ'}")
                 st.markdown(f"**探索階層:** {article.get('depth', 0)}")
 
-                # Altmetric Score を表示
-                altmetric_api = AltmetricAPI()
-                altmetric_metrics = None
+                # Altmetric Score を表示（キャッシュから）
+                altmetric_data = article.get('altmetric_data')
 
-                # DOIがあればDOIで、なければPMIDで取得を試みる
-                if doi and doi != 'N/A':
-                    altmetric_metrics = altmetric_api.get_metrics_by_doi(doi)
-                elif pmid and pmid != 'N/A':
-                    altmetric_metrics = altmetric_api.get_metrics_by_pmid(pmid)
-
-                if altmetric_metrics:
-                    altmetric_score = altmetric_metrics.get('score', 0)
-                    badge_url = altmetric_metrics.get('badge_url', '')
-                    details_url = altmetric_metrics.get('details_url', '')
+                if altmetric_data:
+                    altmetric_score = altmetric_data.get('score', 0)
+                    badge_url = altmetric_data.get('badge_url', '')
+                    details_url = altmetric_data.get('details_url', '')
 
                     st.markdown(f"**Altmetric Score:** {altmetric_score}")
 
@@ -2461,11 +2503,78 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
 
                     # メトリクスの詳細（折りたたみ）
                     with st.expander("📊 Altmetric詳細"):
-                        st.markdown(f"**Mendeley Readers:** {altmetric_metrics.get('readers_count', 0)}")
-                        st.markdown(f"**Twitter Mentions:** {altmetric_metrics.get('cited_by_tweeters_count', 0)}")
-                        st.markdown(f"**Blog Posts:** {altmetric_metrics.get('cited_by_posts_count', 0)}")
-                        st.markdown(f"**Facebook Posts:** {altmetric_metrics.get('cited_by_fbwalls_count', 0)}")
-                        st.markdown(f"**News Outlets:** {altmetric_metrics.get('cited_by_msm_count', 0)}")
+                        st.markdown(f"**Mendeley Readers:** {altmetric_data.get('readers_count', 0)}")
+                        st.markdown(f"**Twitter Mentions:** {altmetric_data.get('cited_by_tweeters_count', 0)}")
+                        st.markdown(f"**Blog Posts:** {altmetric_data.get('cited_by_posts_count', 0)}")
+                        st.markdown(f"**Facebook Posts:** {altmetric_data.get('cited_by_fbwalls_count', 0)}")
+                        st.markdown(f"**News Outlets:** {altmetric_data.get('cited_by_msm_count', 0)}")
+
+                    # 再読み込みボタン（プロジェクトがある場合のみ）
+                    if project:
+                        if st.button(
+                            "🔄 Altmetricを再取得",
+                            key=f"reload_altmetric_result_{article_id}_{i}",
+                            type="secondary",
+                            help="最新のAltmetricメトリクスを取得します"
+                        ):
+                            altmetric_api = AltmetricAPI()
+                            with st.spinner("Altmetricメトリクスを取得中..."):
+                                try:
+                                    new_metrics = None
+                                    if doi and doi != 'N/A':
+                                        new_metrics = altmetric_api.get_metrics_by_doi(doi)
+                                    elif pmid and pmid != 'N/A':
+                                        new_metrics = altmetric_api.get_metrics_by_pmid(pmid)
+
+                                    if new_metrics:
+                                        # プロジェクトから最新のarticleを取得
+                                        project_article = project.get_article_by_id(article_id)
+                                        if project_article:
+                                            project_article['altmetric_score'] = new_metrics.get('score', 0)
+                                            project_article['altmetric_data'] = new_metrics
+                                            project.articles[article_id] = project_article
+                                            project.save()
+                                            st.success(f"Altmetric Scoreを更新しました: {new_metrics.get('score', 0)}")
+                                            st.rerun()
+                                        else:
+                                            st.warning("プロジェクトに論文が見つかりませんでした")
+                                    else:
+                                        st.warning("Altmetricデータが見つかりませんでした")
+                                except Exception as e:
+                                    st.error(f"エラーが発生しました: {e}")
+                elif altmetric_data is None and project:
+                    # メトリクスがない場合は取得ボタンを表示（プロジェクトがある場合のみ）
+                    if st.button(
+                        "📊 Altmetricを取得",
+                        key=f"fetch_altmetric_result_{article_id}_{i}",
+                        type="secondary",
+                        help="Altmetricメトリクスを取得します"
+                    ):
+                        altmetric_api = AltmetricAPI()
+                        with st.spinner("Altmetricメトリクスを取得中..."):
+                            try:
+                                new_metrics = None
+                                if doi and doi != 'N/A':
+                                    new_metrics = altmetric_api.get_metrics_by_doi(doi)
+                                elif pmid and pmid != 'N/A':
+                                    new_metrics = altmetric_api.get_metrics_by_pmid(pmid)
+
+                                if new_metrics:
+                                    # プロジェクトから最新のarticleを取得
+                                    project_article = project.get_article_by_id(article_id)
+                                    if project_article:
+                                        project_article['altmetric_score'] = new_metrics.get('score', 0)
+                                        project_article['altmetric_data'] = new_metrics
+                                        project.articles[article_id] = project_article
+                                        project.save()
+                                        st.success(f"Altmetric Scoreを取得しました: {new_metrics.get('score', 0)}")
+                                        st.rerun()
+                                    else:
+                                        st.warning("プロジェクトに論文が見つかりませんでした")
+                                else:
+                                    st.info("この論文のAltmetricデータは見つかりませんでした")
+                            except Exception as e:
+                                st.error(f"エラーが発生しました: {e}")
 
                 # Notion登録状態を表示（Notion連携を使った場合のみ）
                 if 'in_notion' in article:
