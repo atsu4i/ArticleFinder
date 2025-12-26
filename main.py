@@ -350,21 +350,33 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
             if len(articles_with_coords) >= 2:
                 # Plotly 散布図用のデータフレームを作成
                 df_data = []
+                customdata_list = []
                 for article in map_articles:
                     if article.get("umap_x") is not None and article.get("umap_y") is not None:
                         pmid = article.get("pmid", "")
                         doi = article.get("doi", "")
                         display_id = f"PMID:{pmid}" if pmid else f"DOI:{doi}"
+                        full_title = article.get("title", "")
+                        relevance_score = article.get("relevance_score", 0)
+                        link_count = len(article.get("mentioned_by", []))
+                        article_id = article.get("article_id", "")
 
                         df_data.append({
                             "x": article["umap_x"],
                             "y": article["umap_y"],
-                            "title": article.get("title", "")[:60] + "...",
-                            "relevance_score": article.get("relevance_score", 0),
-                            "link_count": len(article.get("mentioned_by", [])),
-                            "display_id": display_id,
-                            "full_title": article.get("title", "")
+                            "title": full_title[:60] + "..." if len(full_title) > 60 else full_title,
+                            "relevance_score": relevance_score,
+                            "link_count": link_count,
                         })
+
+                        # カスタムデータ（ホバー表示用）
+                        customdata_list.append([
+                            article_id,
+                            full_title,
+                            display_id,
+                            relevance_score,
+                            link_count
+                        ])
 
                 df = pd.DataFrame(df_data)
 
@@ -375,14 +387,6 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
                     y="y",
                     color="relevance_score",
                     size="link_count",
-                    hover_data={
-                        "x": False,
-                        "y": False,
-                        "full_title": True,
-                        "display_id": True,
-                        "relevance_score": True,
-                        "link_count": True
-                    },
                     color_continuous_scale=[
                         [0.0, "rgb(100, 100, 255)"],   # 濃い青（0点）
                         [0.39, "rgb(200, 200, 255)"],  # 薄い青（39点）
@@ -392,13 +396,17 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
                         [1.0, "rgb(255, 0, 0)"]        # 濃い赤（100点）
                     ],
                     range_color=[0, 100],
-                    labels={
-                        "relevance_score": "関連性スコア",
-                        "link_count": "被リンク数",
-                        "display_id": "ID",
-                        "full_title": "タイトル"
-                    },
                     title="セマンティック・マップ（意味的類似性マップ）"
+                )
+
+                # カスタムデータとホバーテンプレートを設定
+                fig.update_traces(
+                    customdata=customdata_list,
+                    hovertemplate="<b>%{customdata[1]}</b><br>" +
+                                  "ID: %{customdata[2]}<br>" +
+                                  "関連性スコア: %{customdata[3]}<br>" +
+                                  "被発見数: %{customdata[4]}件<br>" +
+                                  "<extra></extra>"
                 )
 
                 # レイアウト調整
@@ -413,9 +421,6 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
                 # 軸の目盛りを非表示
                 fig.update_xaxes(showticklabels=False, showgrid=False)
                 fig.update_yaxes(showticklabels=False, showgrid=False)
-
-                # article_idをカスタムデータとして追加（クリック時に取得するため）
-                fig.update_traces(customdata=[[a.get("article_id", "")] for a in articles_with_coords])
 
                 # クリックイベントを受け取る
                 selected = st.plotly_chart(
