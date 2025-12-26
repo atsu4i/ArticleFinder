@@ -1223,38 +1223,43 @@ def display_project_articles(
         )
 
     # 出版年フィルタ（2列目の行）
-    # 論文データから年の範囲を取得
-    pub_years = [a.get("pub_year") for a in articles if a.get("pub_year") is not None]
-    if pub_years:
-        min_year = min(pub_years)
-        max_year = max(pub_years)
+    col5, col6 = st.columns(2)
 
-        col5, col6 = st.columns(2)
+    with col5:
+        start_year_input = st.text_input(
+            "出版年（開始）",
+            value="",
+            placeholder="指定なし",
+            key="project_filter_start_year",
+            help="この年以降に出版された論文を表示（空白の場合は指定なし）"
+        )
+        # 入力値の検証と変換
+        if start_year_input.strip():
+            try:
+                start_year = int(start_year_input.strip())
+            except ValueError:
+                st.error("開始年は数字で入力してください")
+                start_year = None
+        else:
+            start_year = None
 
-        with col5:
-            start_year = st.slider(
-                "出版年（開始）",
-                min_value=min_year,
-                max_value=max_year,
-                value=min_year,
-                step=1,
-                key="project_filter_start_year",
-                help="この年以降に出版された論文を表示"
-            )
-
-        with col6:
-            end_year = st.slider(
-                "出版年（終了）",
-                min_value=min_year,
-                max_value=max_year,
-                value=max_year,
-                step=1,
-                key="project_filter_end_year",
-                help="この年以前に出版された論文を表示"
-            )
-    else:
-        start_year = None
-        end_year = None
+    with col6:
+        end_year_input = st.text_input(
+            "出版年（終了）",
+            value="",
+            placeholder="指定なし",
+            key="project_filter_end_year",
+            help="この年以前に出版された論文を表示（空白の場合は指定なし）"
+        )
+        # 入力値の検証と変換
+        if end_year_input.strip():
+            try:
+                end_year = int(end_year_input.strip())
+            except ValueError:
+                st.error("終了年は数字で入力してください")
+                end_year = None
+        else:
+            end_year = None
 
     # 論文リストをフィルタ
     filtered_articles = articles
@@ -1281,10 +1286,13 @@ def display_project_articles(
     ]
 
     # 出版年フィルタ
-    if start_year is not None and end_year is not None:
+    if start_year is not None or end_year is not None:
         filtered_articles = [
             a for a in filtered_articles
-            if a.get("pub_year") is not None and start_year <= a.get("pub_year") <= end_year
+            if a.get("pub_year") is not None and (
+                (start_year is None or a.get("pub_year") >= start_year) and
+                (end_year is None or a.get("pub_year") <= end_year)
+            )
         ]
 
     # ページネーション設定
@@ -2063,38 +2071,43 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
         )
 
     # 出版年フィルタ（2列目の行）
-    # 論文データから年の範囲を取得
-    pub_years_results = [a.get("pub_year") for a in articles if a.get("pub_year") is not None]
-    if pub_years_results:
-        min_year_results = min(pub_years_results)
-        max_year_results = max(pub_years_results)
+    col6, col7 = st.columns(2)
 
-        col6, col7 = st.columns(2)
+    with col6:
+        start_year_input_results = st.text_input(
+            "出版年（開始）",
+            value="",
+            placeholder="指定なし",
+            key="results_filter_start_year",
+            help="この年以降に出版された論文を表示（空白の場合は指定なし）"
+        )
+        # 入力値の検証と変換
+        if start_year_input_results.strip():
+            try:
+                start_year_results = int(start_year_input_results.strip())
+            except ValueError:
+                st.error("開始年は数字で入力してください")
+                start_year_results = None
+        else:
+            start_year_results = None
 
-        with col6:
-            start_year_results = st.slider(
-                "出版年（開始）",
-                min_value=min_year_results,
-                max_value=max_year_results,
-                value=min_year_results,
-                step=1,
-                key="results_filter_start_year",
-                help="この年以降に出版された論文を表示"
-            )
-
-        with col7:
-            end_year_results = st.slider(
-                "出版年（終了）",
-                min_value=min_year_results,
-                max_value=max_year_results,
-                value=max_year_results,
-                step=1,
-                key="results_filter_end_year",
-                help="この年以前に出版された論文を表示"
-            )
-    else:
-        start_year_results = None
-        end_year_results = None
+    with col7:
+        end_year_input_results = st.text_input(
+            "出版年（終了）",
+            value="",
+            placeholder="指定なし",
+            key="results_filter_end_year",
+            help="この年以前に出版された論文を表示（空白の場合は指定なし）"
+        )
+        # 入力値の検証と変換
+        if end_year_input_results.strip():
+            try:
+                end_year_results = int(end_year_input_results.strip())
+            except ValueError:
+                st.error("終了年は数字で入力してください")
+                end_year_results = None
+        else:
+            end_year_results = None
 
     # 論文リストをフィルタ
     filtered_articles = articles
@@ -2120,10 +2133,13 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
     ]
 
     # 出版年フィルタ
-    if start_year_results is not None and end_year_results is not None:
+    if start_year_results is not None or end_year_results is not None:
         filtered_articles = [
             a for a in filtered_articles
-            if a.get("pub_year") is not None and start_year_results <= a.get("pub_year") <= end_year_results
+            if a.get("pub_year") is not None and (
+                (start_year_results is None or a.get("pub_year") >= start_year_results) and
+                (end_year_results is None or a.get("pub_year") <= end_year_results)
+            )
         ]
 
     # ページネーション設定
