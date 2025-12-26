@@ -30,11 +30,21 @@ class AltmetricAPI:
         self._rate_limit()
         url = f"{self.BASE_URL}/{endpoint}"
 
+        # User-Agentヘッダーを追加（APIアクセスに必要）
+        headers = {
+            "User-Agent": "ArticleFinder/1.0 (Educational Research Tool; mailto:research@example.com)"
+        }
+
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, headers=headers, timeout=10)
 
             # 404の場合はメトリクスが存在しない
             if response.status_code == 404:
+                return None
+
+            # 403の場合はアクセス制限（静かに失敗）
+            if response.status_code == 403:
+                print(f"Altmetric API access forbidden for {endpoint} (403)")
                 return None
 
             response.raise_for_status()
