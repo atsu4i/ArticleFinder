@@ -2166,13 +2166,38 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
 
     # ネットワークグラフ表示
     if filtered_articles:
-        with st.expander("🕸️ ネットワークグラフを表示", expanded=False):
-            st.info("ノードの大きさ = 被リンク数、ノードの色 = 関連性スコア（赤=高、青=低）")
+        st.subheader("📊 論文の可視化")
 
+        st.info(
+            "**スコア別の表示（色で区別）：**\n"
+            "🔴 81-100点（濃い赤） | 🟠 61-80点（オレンジ） | 🟡 41-60点（黄色） | 🔵 21-40点（薄い青） | 🔵 1-20点（濃い青）\n\n"
+            "矢印 = 引用関係（親論文 → 子論文）\n\n"
+            "**💡 ノードをダブルクリックで選択できます**"
+        )
+
+        # セッションステートでグラフ生成状態を管理
+        if 'show_results_network_graph' not in st.session_state:
+            st.session_state.show_results_network_graph = False
+        if 'results_network_graph_articles' not in st.session_state:
+            st.session_state.results_network_graph_articles = []
+        if 'results_network_graph_elements' not in st.session_state:
+            st.session_state.results_network_graph_elements = None
+
+        # グラフ生成ボタン
+        button_label = "🔄 グラフを更新" if st.session_state.show_results_network_graph else "🕸️ ネットワークグラフを生成"
+
+        if st.button(button_label, type="primary", use_container_width=True, key="generate_results_network_graph_btn"):
+            # ボタン押下時のみグラフを生成
+            with st.spinner("ネットワークグラフを生成中... しばらくお待ちください"):
+                st.session_state.results_network_graph_articles = filtered_articles.copy()
+                st.session_state.results_network_graph_elements = generate_network_graph(st.session_state.results_network_graph_articles)
+            st.session_state.show_results_network_graph = True
+
+        # グラフが生成済みの場合のみ表示
+        if st.session_state.show_results_network_graph and st.session_state.results_network_graph_elements is not None:
             try:
-                # グラフを生成
-                with st.spinner("ネットワークグラフを生成中..."):
-                    elements = generate_network_graph(filtered_articles)
+                # キャッシュされた要素を使用（再生成しない）
+                elements = st.session_state.results_network_graph_elements
 
                 # NodeStyle と EdgeStyle を定義（5段階）
                 node_styles = [
@@ -2237,6 +2262,10 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                 st.error(f"ネットワークグラフの生成に失敗しました: {e}")
                 import traceback
                 st.code(traceback.format_exc())
+        else:
+            st.info("👆 上のボタンを押すとネットワークグラフが生成されます。\n\n⚠️ **注意**: 論文数が増えると生成に時間がかかります（1000件以上で数十秒〜数分）。")
+
+    st.divider()
 
     # 論文リストを表示
     st.subheader("📄 論文リスト")
