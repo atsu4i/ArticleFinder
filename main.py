@@ -11,6 +11,7 @@ from article_finder import ArticleFinder
 from project_manager import ProjectManager
 from gemini_evaluator import GeminiEvaluator
 from embedding_manager import EmbeddingManager
+from altmetric_api import AltmetricAPI
 from st_link_analysis import st_link_analysis, NodeStyle, EdgeStyle, Event
 import streamlit.components.v1 as components
 import plotly.express as px
@@ -1686,6 +1687,39 @@ def display_project_articles(
 
                 st.markdown(f"**関連性スコア:** :{color}[{score}]")
 
+                # Altmetric Score を表示
+                altmetric_api = AltmetricAPI()
+                altmetric_metrics = None
+
+                # DOIがあればDOIで、なければPMIDで取得を試みる
+                if doi and doi != 'N/A':
+                    altmetric_metrics = altmetric_api.get_metrics_by_doi(doi)
+                elif pmid and pmid != 'N/A':
+                    altmetric_metrics = altmetric_api.get_metrics_by_pmid(pmid)
+
+                if altmetric_metrics:
+                    altmetric_score = altmetric_metrics.get('score', 0)
+                    badge_url = altmetric_metrics.get('badge_url', '')
+                    details_url = altmetric_metrics.get('details_url', '')
+
+                    st.markdown(f"**Altmetric Score:** {altmetric_score}")
+
+                    # バッジとリンクを表示
+                    if badge_url and details_url:
+                        st.markdown(
+                            f'<a href="{details_url}" target="_blank">'
+                            f'<img src="{badge_url}" alt="Altmetric Badge" style="max-width: 100px;"></a>',
+                            unsafe_allow_html=True
+                        )
+
+                    # メトリクスの詳細（折りたたみ）
+                    with st.expander("📊 Altmetric詳細"):
+                        st.markdown(f"**Mendeley Readers:** {altmetric_metrics.get('readers_count', 0)}")
+                        st.markdown(f"**Twitter Mentions:** {altmetric_metrics.get('cited_by_tweeters_count', 0)}")
+                        st.markdown(f"**Blog Posts:** {altmetric_metrics.get('cited_by_posts_count', 0)}")
+                        st.markdown(f"**Facebook Posts:** {altmetric_metrics.get('cited_by_fbwalls_count', 0)}")
+                        st.markdown(f"**News Outlets:** {altmetric_metrics.get('cited_by_msm_count', 0)}")
+
                 # Notion登録状態を表示（Notion連携を使った場合のみ）
                 if 'in_notion' in article:
                     if article.get('in_notion'):
@@ -2399,6 +2433,39 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                 st.markdown(f"**関連性スコア:** :{color}[{score}]")
                 st.markdown(f"**関連あり:** {'✅ はい' if is_relevant else '❌ いいえ'}")
                 st.markdown(f"**探索階層:** {article.get('depth', 0)}")
+
+                # Altmetric Score を表示
+                altmetric_api = AltmetricAPI()
+                altmetric_metrics = None
+
+                # DOIがあればDOIで、なければPMIDで取得を試みる
+                if doi and doi != 'N/A':
+                    altmetric_metrics = altmetric_api.get_metrics_by_doi(doi)
+                elif pmid and pmid != 'N/A':
+                    altmetric_metrics = altmetric_api.get_metrics_by_pmid(pmid)
+
+                if altmetric_metrics:
+                    altmetric_score = altmetric_metrics.get('score', 0)
+                    badge_url = altmetric_metrics.get('badge_url', '')
+                    details_url = altmetric_metrics.get('details_url', '')
+
+                    st.markdown(f"**Altmetric Score:** {altmetric_score}")
+
+                    # バッジとリンクを表示
+                    if badge_url and details_url:
+                        st.markdown(
+                            f'<a href="{details_url}" target="_blank">'
+                            f'<img src="{badge_url}" alt="Altmetric Badge" style="max-width: 100px;"></a>',
+                            unsafe_allow_html=True
+                        )
+
+                    # メトリクスの詳細（折りたたみ）
+                    with st.expander("📊 Altmetric詳細"):
+                        st.markdown(f"**Mendeley Readers:** {altmetric_metrics.get('readers_count', 0)}")
+                        st.markdown(f"**Twitter Mentions:** {altmetric_metrics.get('cited_by_tweeters_count', 0)}")
+                        st.markdown(f"**Blog Posts:** {altmetric_metrics.get('cited_by_posts_count', 0)}")
+                        st.markdown(f"**Facebook Posts:** {altmetric_metrics.get('cited_by_fbwalls_count', 0)}")
+                        st.markdown(f"**News Outlets:** {altmetric_metrics.get('cited_by_msm_count', 0)}")
 
                 # Notion登録状態を表示（Notion連携を使った場合のみ）
                 if 'in_notion' in article:
