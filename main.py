@@ -1293,21 +1293,24 @@ def display_project_articles(
                 st.session_state.show_network_graph = False
             if 'network_graph_articles' not in st.session_state:
                 st.session_state.network_graph_articles = []
+            if 'network_graph_elements' not in st.session_state:
+                st.session_state.network_graph_elements = None
 
             # グラフ生成ボタン
             button_label = "🔄 グラフを更新" if st.session_state.show_network_graph else "🕸️ ネットワークグラフを生成"
 
             if st.button(button_label, type="primary", use_container_width=True, key="generate_network_graph_btn"):
+                # ボタン押下時のみグラフを生成
+                with st.spinner("ネットワークグラフを生成中..."):
+                    st.session_state.network_graph_articles = filtered_articles.copy()
+                    st.session_state.network_graph_elements = generate_network_graph(st.session_state.network_graph_articles)
                 st.session_state.show_network_graph = True
-                # ボタン押下時のfiltered_articlesをスナップショットとして保存
-                st.session_state.network_graph_articles = filtered_articles.copy()
 
             # グラフが生成済みの場合のみ表示
-            if st.session_state.show_network_graph:
+            if st.session_state.show_network_graph and st.session_state.network_graph_elements is not None:
                 try:
-                    with st.spinner("ネットワークグラフを生成中..."):
-                        # スナップショットからグラフを生成（フィルタ変更の影響を受けない）
-                        elements = generate_network_graph(st.session_state.network_graph_articles)
+                    # キャッシュされた要素を使用（再生成しない）
+                    elements = st.session_state.network_graph_elements
 
                     # NodeStyle と EdgeStyle を定義（5段階）
                     # アイコンパラメータを省略して色のみで表現
