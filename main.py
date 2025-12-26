@@ -512,7 +512,7 @@ def main():
         if project_mode == "新規プロジェクト作成":
             project_name = st.text_input(
                 "プロジェクト名",
-                placeholder="例: 糖尿病治療研究",
+                placeholder="例: 小児喘息の治療研究",
                 help="プロジェクト名を入力"
             )
         else:
@@ -573,17 +573,17 @@ def main():
 
         # セッション状態の初期化
         if 'config_max_depth_slider' not in st.session_state:
-            st.session_state.config_max_depth_slider = 2
+            st.session_state.config_max_depth_slider = 3
         if 'config_max_depth_input' not in st.session_state:
-            st.session_state.config_max_depth_input = 2
+            st.session_state.config_max_depth_input = 3
         if 'config_max_articles_slider' not in st.session_state:
-            st.session_state.config_max_articles_slider = 100
+            st.session_state.config_max_articles_slider = 500
         if 'config_max_articles_input' not in st.session_state:
-            st.session_state.config_max_articles_input = 100
+            st.session_state.config_max_articles_input = 500
         if 'config_threshold_slider' not in st.session_state:
-            st.session_state.config_threshold_slider = 60
+            st.session_state.config_threshold_slider = 80
         if 'config_threshold_input' not in st.session_state:
-            st.session_state.config_threshold_input = 60
+            st.session_state.config_threshold_input = 80
 
         # 探索の深さ
         col_slider, col_input = st.columns([3, 1])
@@ -674,7 +674,7 @@ def main():
                 "最大数",
                 min_value=5,
                 max_value=100,
-                value=20,
+                value=50,
                 step=5,
                 disabled=not st.session_state.get("include_similar", True),
                 key="max_similar",
@@ -691,7 +691,7 @@ def main():
                 "最大数",
                 min_value=5,
                 max_value=100,
-                value=20,
+                value=50,
                 step=5,
                 disabled=not st.session_state.get("include_cited_by", True),
                 key="max_cited_by",
@@ -708,7 +708,7 @@ def main():
                 "最大数",
                 min_value=5,
                 max_value=100,
-                value=20,
+                value=50,
                 step=5,
                 disabled=not st.session_state.get("include_references", False),
                 key="max_references",
@@ -863,7 +863,7 @@ def main():
         research_theme = st.text_area(
             "どのような論文を探したいか、具体的に記載してください",
             value=default_theme,
-            placeholder="例: 2型糖尿病患者におけるインスリン抵抗性と心血管疾患リスクの関連について研究している論文を探しています。特にメトホルミンやGLP-1受容体作動薬などの治療薬の効果を含めた研究に興味があります。",
+            placeholder="例: 小児喘息患者における吸入ステロイド薬の長期使用が成長に与える影響について研究している論文を探しています。特に低用量から中用量のステロイド使用における安全性や、代替治療法との比較研究に興味があります。",
             height=150,
             help="この内容に合致する論文をAIが評価して探します"
         )
@@ -1330,16 +1330,6 @@ def display_project_articles(
                         key="network_graph"
                     )
 
-                    # デバッグ: 戻り値を確認
-                    with st.expander("🔍 デバッグ情報（ネットワークグラフ）", expanded=False):
-                        st.write("Event:", event)
-                        st.write("Session State ID:", st.session_state.get("selected_article_id"))
-
-                        if event and "data" in event and "node_ids" in event["data"] and len(event["data"]["node_ids"]) > 0:
-                            st.write(f"Clicked Node ID: {event['data']['node_ids'][0]}")
-                        else:
-                            st.write("No node clicked in this event loop.")
-
                     # イベントの保存処理（最重要！）
                     # ダブルクリックで expand されると event['data']['node_ids'] にIDが入る
                     # 無限ループを防ぐため、前回処理したIDを記録
@@ -1498,6 +1488,8 @@ def display_project_articles(
     st.divider()
 
     # 論文リスト（フィルタ後のみ表示）
+    # ページトップアンカー
+    st.markdown('<div id="article-list-top"></div>', unsafe_allow_html=True)
     st.subheader("📄 論文リスト")
 
     # ページネーションコントロール
