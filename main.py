@@ -798,6 +798,41 @@ def main():
 
         st.divider()
 
+        # キャッシュクリアボタン
+        st.subheader("🧹 キャッシュ管理")
+
+        if st.button("🗑️ グラフキャッシュをクリア", use_container_width=True, help="ネットワークグラフとセマンティックマップのキャッシュをクリアして、メモリを解放します"):
+            # クリアするセッションステートのキー
+            keys_to_clear = [
+                # ネットワークグラフ（プロジェクト画面）
+                'show_network_graph',
+                'network_graph_articles',
+                'network_graph_elements',
+                'last_network_graph_selection',
+                # セマンティックマップ
+                'show_semantic_map',
+                'semantic_map_articles',
+                'last_semantic_map_selection',
+                # ネットワークグラフ（検索結果画面）
+                'show_results_network_graph',
+                'results_network_graph_articles',
+                'results_network_graph_elements',
+                # その他
+                'selected_article_id'
+            ]
+
+            cleared_count = 0
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+                    cleared_count += 1
+
+            st.success(f"✅ {cleared_count}件のキャッシュをクリアしました")
+            st.info("ページを再読み込みすると、軽快に動作するようになります")
+            st.rerun()
+
+        st.divider()
+
         # 6. API設定（最下部）
         st.subheader("API設定")
 
