@@ -93,6 +93,36 @@ class OpenAlexAPI:
         url = f"{self.BASE_URL}/works/doi:{doi_clean}"
         return self._make_request(url)
 
+    def get_citation_count_by_pmid(self, pmid: str) -> Optional[int]:
+        """
+        PMIDから被引用数を取得
+
+        Args:
+            pmid: PubMed ID
+
+        Returns:
+            被引用数（取得できない場合はNone）
+        """
+        work = self.get_work_by_pmid(pmid)
+        if work:
+            return work.get("cited_by_count", 0)
+        return None
+
+    def get_citation_count_by_doi(self, doi: str) -> Optional[int]:
+        """
+        DOIから被引用数を取得
+
+        Args:
+            doi: DOI
+
+        Returns:
+            被引用数（取得できない場合はNone）
+        """
+        work = self.get_work_by_doi(doi)
+        if work:
+            return work.get("cited_by_count", 0)
+        return None
+
     def _reconstruct_abstract_from_inverted_index(self, inverted_index: dict) -> str:
         """
         OpenAlexのabstract_inverted_indexから元のabstractを復元

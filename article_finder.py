@@ -724,6 +724,31 @@ class ArticleFinder:
                             article["altmetric_score"] = None
                             article["altmetric_data"] = None
 
+                    # 被引用数がない場合は取得
+                    if "citation_count" not in article or article.get("citation_count") is None:
+                        citation_count = None
+                        try:
+                            doi = article.get("doi")
+                            pmid = article.get("pmid")
+
+                            if doi:
+                                citation_count = self.openalex.get_citation_count_by_doi(doi)
+                            elif pmid:
+                                citation_count = self.openalex.get_citation_count_by_pmid(pmid)
+
+                            if citation_count is not None:
+                                article["citation_count"] = citation_count
+                                print(f"    被引用数取得(キャッシュ): {citation_count}")
+                                # プロジェクトに保存
+                                if project:
+                                    project.add_article(article)
+                                    project.save()
+                            else:
+                                article["citation_count"] = 0
+                        except Exception as e:
+                            print(f"    被引用数取得エラー(キャッシュ): {e}")
+                            article["citation_count"] = 0
+
                     # キャッシュから取得したことを示すフラグ
                     article["is_newly_evaluated"] = False
 
@@ -811,6 +836,26 @@ class ArticleFinder:
                             print(f"    Altmetric取得エラー: {e}")
                             article["altmetric_score"] = None
                             article["altmetric_data"] = None
+
+                        # OpenAlexから被引用数を取得
+                        citation_count = None
+                        try:
+                            doi = article.get("doi")
+                            pmid = article.get("pmid")
+
+                            if doi:
+                                citation_count = self.openalex.get_citation_count_by_doi(doi)
+                            elif pmid:
+                                citation_count = self.openalex.get_citation_count_by_pmid(pmid)
+
+                            if citation_count is not None:
+                                article["citation_count"] = citation_count
+                                print(f"    被引用数取得: {citation_count}")
+                            else:
+                                article["citation_count"] = 0
+                        except Exception as e:
+                            print(f"    被引用数取得エラー: {e}")
+                            article["citation_count"] = 0
 
                         # プロジェクトに保存（リアルタイム保存）
                         if project:

@@ -234,6 +234,101 @@ def generate_network_graph(articles: List[Dict]) -> Dict:
     return {"nodes": nodes, "edges": edges}
 
 
+@st.cache_data
+def generate_citation_network_graph(articles: List[Dict]) -> Dict:
+    """
+    論文のネットワークグラフを生成（被引用数ベース、st-link-analysis用）
+
+    Args:
+        articles: 論文リスト
+
+    Returns:
+        st-link-analysisで使用する elements 辞書
+    """
+    # ノードとエッジのデータを準備
+    article_dict = {str(a["article_id"]): a for a in articles}
+
+    nodes = []
+    edges = []
+    edge_id = 0
+
+    # 各論文をノードとして追加
+    for article in articles:
+        article_id = str(article["article_id"])
+        title = article.get("title", "不明なタイトル")
+        relevance_score = article.get("relevance_score", 0)
+        mentioned_by = article.get("mentioned_by", [])
+        link_count = len(mentioned_by)
+        citation_count = article.get("citation_count", 0)  # OpenAlexの被引用数
+
+        # PMID/DOIを取得
+        pmid = article.get("pmid", "")
+        doi = article.get("doi", "")
+        display_id = f"PMID:{pmid}" if pmid else f"DOI:{doi}"
+
+        # スコアに応じたラベルを設定（色分け用・5段階）
+        if relevance_score >= 81:
+            score_label = "EXCELLENT"
+        elif relevance_score >= 61:
+            score_label = "GOOD"
+        elif relevance_score >= 41:
+            score_label = "MODERATE"
+        elif relevance_score >= 21:
+            score_label = "FAIR"
+        else:
+            score_label = "POOR"
+
+        # ノードサイズを被引用数に応じて計算（20-200の範囲）
+        # 被引用数が多い論文は大きく表示
+        # 対数スケールで計算（被引用数0-1000を20-200にマッピング）
+        import math
+        if citation_count > 0:
+            # log10(1) = 0, log10(10) = 1, log10(100) = 2, log10(1000) = 3
+            log_citations = math.log10(citation_count + 1)  # +1でlog(0)を回避
+            # log10(1000) = 3 なので、3で割って0-1に正規化し、180倍して20-200に
+            node_size = 20 + min(int(log_citations / 3 * 180), 180)
+        else:
+            node_size = 20
+
+        # ノードを追加
+        nodes.append({
+            "data": {
+                "id": article_id,
+                "label": score_label,
+                "name": title[:80] + "..." if len(title) > 80 else title,
+                "score": relevance_score,
+                "links": link_count,
+                "citations": citation_count,  # 被引用数を追加
+                "pmid": pmid if pmid else "-",
+                "doi": doi if doi else "-"
+            },
+            "style": {
+                "width": node_size,
+                "height": node_size
+            }
+        })
+
+    # エッジを追加（親 → 子）
+    for article in articles:
+        article_id = str(article["article_id"])
+        mentioned_by = article.get("mentioned_by", [])
+
+        for parent_id in mentioned_by:
+            parent_id_str = str(parent_id)
+            if parent_id_str in article_dict:
+                edges.append({
+                    "data": {
+                        "id": str(edge_id),
+                        "source": parent_id_str,
+                        "target": article_id,
+                        "label": "CITES"
+                    }
+                })
+                edge_id += 1
+
+    return {"nodes": nodes, "edges": edges}
+
+
 def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
     """
     論文のセマンティック・マップ（意味的類似性マップ）を生成・表示
@@ -809,6 +904,11 @@ def main():
                 'network_graph_articles',
                 'network_graph_elements',
                 'last_network_graph_selection',
+                # 被引用数ネットワークグラフ（プロジェクト画面）
+                'show_citation_graph',
+                'citation_graph_articles',
+                'citation_graph_elements',
+                'last_citation_graph_selection',
                 # セマンティックマップ
                 'show_semantic_map',
                 'semantic_map_articles',
@@ -1371,7 +1471,7 @@ def display_project_articles(
     if filtered_articles:
         st.subheader("📊 論文の可視化")
 
-        tab1, tab2 = st.tabs(["🕸️ ネットワークグラフ", "🔮 セマンティック・マップ"])
+        tab1, tab2, tab3 = st.tabs(["🕸️ ネットワークグラフ（被発見数）", "📊 ネットワークグラフ（被引用数）", "🔮 セマンティック・マップ"])
 
         with tab1:
             st.info(
@@ -1478,6 +1578,99 @@ def display_project_articles(
                 st.info("👆 上のボタンを押すとネットワークグラフが生成されます。\n\n⚠️ **注意**: 論文数が増えると生成に時間がかかります（1000件以上で数十秒〜数分）。")
 
         with tab2:
+            st.info(
+                "**スコア別の表示（色で区別）：**\n"
+                "🔴 81-100点（濃い赤） | 🟠 61-80点（オレンジ） | 🟡 41-60点（黄色） | 🔵 21-40点（薄い青） | 🔵 1-20点（濃い青）\n\n"
+                "矢印 = 引用関係（親論文 → 子論文）\n\n"
+                "**ノードの大きさ = OpenAlexの被引用数**（学術的影響力を表す）\n\n"
+                "**💡 ノードをダブルクリックで選択できます**"
+            )
+
+            # セッションステートでグラフ生成状態を管理
+            if 'show_citation_graph' not in st.session_state:
+                st.session_state.show_citation_graph = False
+            if 'citation_graph_articles' not in st.session_state:
+                st.session_state.citation_graph_articles = []
+            if 'citation_graph_elements' not in st.session_state:
+                st.session_state.citation_graph_elements = None
+
+            # グラフ生成ボタン
+            button_label = "🔄 グラフを更新" if st.session_state.show_citation_graph else "📊 被引用数ネットワークグラフを生成"
+
+            if st.button(button_label, type="primary", use_container_width=True, key="generate_citation_graph_btn"):
+                # ボタン押下時のみグラフを生成
+                with st.spinner("被引用数ネットワークグラフを生成中..."):
+                    st.session_state.citation_graph_articles = filtered_articles.copy()
+                    st.session_state.citation_graph_elements = generate_citation_network_graph(st.session_state.citation_graph_articles)
+                st.session_state.show_citation_graph = True
+
+            # グラフが生成済みの場合のみ表示
+            if st.session_state.show_citation_graph and st.session_state.citation_graph_elements is not None:
+                try:
+                    # キャッシュされた要素を使用（再生成しない）
+                    elements = st.session_state.citation_graph_elements
+
+                    # NodeStyle と EdgeStyle を定義（5段階）
+                    node_styles = [
+                        NodeStyle("EXCELLENT", "#FF2D2D", "name"),  # 81-100: 濃い赤
+                        NodeStyle("GOOD", "#FF8C42", "name"),  # 61-80: オレンジ
+                        NodeStyle("MODERATE", "#FFD700", "name"),  # 41-60: 黄色
+                        NodeStyle("FAIR", "#87CEEB", "name"),  # 21-40: 薄い青
+                        NodeStyle("POOR", "#4169E1", "name"),  # 1-20: 濃い青
+                    ]
+                    edge_styles = [
+                        EdgeStyle("CITES", directed=True, caption="label")
+                    ]
+
+                    # グラフを表示
+                    layout_config = {
+                        "name": "cose",
+                        "animationDuration": 1000,
+                        "nodeRepulsion": 20000,
+                        "idealEdgeLength": 150,
+                        "nodeOverlap": 30,
+                        "gravity": 40,
+                        "numIter": 1000,
+                    }
+
+                    event = st_link_analysis(
+                        elements,
+                        layout=layout_config,
+                        node_styles=node_styles,
+                        edge_styles=edge_styles,
+                        enable_node_actions=True,
+                        key="citation_network_graph"
+                    )
+
+                    # イベントの保存処理
+                    if 'last_citation_graph_selection' not in st.session_state:
+                        st.session_state.last_citation_graph_selection = None
+
+                    if event and "data" in event and "node_ids" in event["data"] and len(event["data"]["node_ids"]) > 0:
+                        clicked_id = event["data"]["node_ids"][0]
+
+                        if st.session_state.last_citation_graph_selection != clicked_id:
+                            st.session_state.selected_article_id = clicked_id
+                            st.session_state.last_citation_graph_selection = clicked_id
+
+                            global_index = next((i for i, a in enumerate(filtered_articles) if a["article_id"] == clicked_id), 0)
+                            target_page = (global_index // 20) + 1
+                            st.session_state.project_page = target_page
+
+                            st.rerun()
+                    else:
+                        st.session_state.last_citation_graph_selection = None
+
+                    st.info("💡 ノードを**ダブルクリック**すると、論文リストの詳細にジャンプします")
+
+                except Exception as e:
+                    st.error(f"被引用数ネットワークグラフの生成に失敗しました: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+            else:
+                st.info("👆 上のボタンを押すと被引用数ネットワークグラフが生成されます。\n\n⚠️ **注意**: 論文数が増えると生成に時間がかかります（1000件以上で数十秒〜数分）。")
+
+        with tab3:
             # セマンティック・マップを表示
             generate_semantic_map(filtered_articles, api_key, project)
 
