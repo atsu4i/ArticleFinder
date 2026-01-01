@@ -252,6 +252,12 @@ def generate_citation_network_graph(articles: List[Dict]) -> Dict:
     edges = []
     edge_id = 0
 
+    # 被引用数の最小値と最大値を取得（相対スケーリング用）
+    citation_counts = [a.get("citation_count", 0) for a in articles]
+    min_citations = min(citation_counts) if citation_counts else 0
+    max_citations = max(citation_counts) if citation_counts else 0
+    citation_range = max_citations - min_citations
+
     # 各論文をノードとして追加
     for article in articles:
         article_id = str(article["article_id"])
@@ -278,17 +284,15 @@ def generate_citation_network_graph(articles: List[Dict]) -> Dict:
         else:
             score_label = "POOR"
 
-        # ノードサイズを被引用数に応じて計算（20-200の範囲）
-        # 被引用数が多い論文は大きく表示
-        # 対数スケールで計算（被引用数0-1000を20-200にマッピング）
-        import math
-        if citation_count > 0:
-            # log10(1) = 0, log10(10) = 1, log10(100) = 2, log10(1000) = 3
-            log_citations = math.log10(citation_count + 1)  # +1でlog(0)を回避
-            # log10(1000) = 3 なので、3で割って0-1に正規化し、180倍して20-200に
-            node_size = 20 + min(int(log_citations / 3 * 180), 180)
+        # ノードサイズを被引用数に応じて計算（相対スケーリング: 20-120px）
+        # プロジェクト内の最小値と最大値で正規化
+        if citation_range > 0:
+            # 0-1に正規化してから20-120にマッピング
+            normalized = (citation_count - min_citations) / citation_range
+            node_size = 20 + int(normalized * 100)  # 20-120の範囲
         else:
-            node_size = 20
+            # 全て同じ被引用数の場合
+            node_size = 60  # 中間サイズ
 
         # ノードを追加
         nodes.append({
