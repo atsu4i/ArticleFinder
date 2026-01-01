@@ -897,46 +897,6 @@ def main():
 
         st.divider()
 
-        # キャッシュクリアボタン
-        st.subheader("🧹 キャッシュ管理")
-
-        if st.button("🗑️ グラフキャッシュをクリア", use_container_width=True, help="ネットワークグラフとセマンティックマップのキャッシュをクリアして、メモリを解放します"):
-            # クリアするセッションステートのキー
-            keys_to_clear = [
-                # ネットワークグラフ（プロジェクト画面）
-                'show_network_graph',
-                'network_graph_articles',
-                'network_graph_elements',
-                'last_network_graph_selection',
-                # 被引用数ネットワークグラフ（プロジェクト画面）
-                'show_citation_graph',
-                'citation_graph_articles',
-                'citation_graph_elements',
-                'last_citation_graph_selection',
-                # セマンティックマップ
-                'show_semantic_map',
-                'semantic_map_articles',
-                'last_semantic_map_selection',
-                # ネットワークグラフ（検索結果画面）
-                'show_results_network_graph',
-                'results_network_graph_articles',
-                'results_network_graph_elements',
-                # その他
-                'selected_article_id'
-            ]
-
-            cleared_count = 0
-            for key in keys_to_clear:
-                if key in st.session_state:
-                    del st.session_state[key]
-                    cleared_count += 1
-
-            st.success(f"✅ {cleared_count}件のキャッシュをクリアしました")
-            st.info("ページを再読み込みすると、軽快に動作するようになります")
-            st.rerun()
-
-        st.divider()
-
         # 6. API設定（最下部）
         st.subheader("API設定")
 
@@ -1473,7 +1433,44 @@ def display_project_articles(
 
     # 可視化（ネットワークグラフ & セマンティック・マップ）
     if filtered_articles:
-        st.subheader("📊 論文の可視化")
+        # 見出しとキャッシュクリアボタンを横並びに配置
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.subheader("📊 論文の可視化")
+        with col2:
+            if st.button("🗑️ キャッシュクリア", help="グラフのキャッシュをクリアしてメモリを解放します", key="clear_graph_cache"):
+                # クリアするセッションステートのキー
+                keys_to_clear = [
+                    # ネットワークグラフ（プロジェクト画面）
+                    'show_network_graph',
+                    'network_graph_articles',
+                    'network_graph_elements',
+                    'last_network_graph_selection',
+                    # 被引用数ネットワークグラフ（プロジェクト画面）
+                    'show_citation_graph',
+                    'citation_graph_articles',
+                    'citation_graph_elements',
+                    'last_citation_graph_selection',
+                    # セマンティックマップ
+                    'show_semantic_map',
+                    'semantic_map_articles',
+                    'last_semantic_map_selection',
+                    # ネットワークグラフ（検索結果画面）
+                    'show_results_network_graph',
+                    'results_network_graph_articles',
+                    'results_network_graph_elements',
+                    # その他
+                    'selected_article_id'
+                ]
+
+                cleared_count = 0
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                        cleared_count += 1
+
+                st.success(f"✅ {cleared_count}件のキャッシュをクリアしました")
+                st.rerun()
 
         tab1, tab2, tab3 = st.tabs(["🕸️ ネットワークグラフ（被発見数）", "📊 ネットワークグラフ（被引用数）", "🔮 セマンティック・マップ"])
 
