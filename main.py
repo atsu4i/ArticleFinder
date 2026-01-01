@@ -1404,6 +1404,45 @@ def display_project_articles(
         else:
             end_year = None
 
+    # 被引用数フィルタ（3列目の行）
+    col7, col8 = st.columns(2)
+
+    with col7:
+        min_citation_input = st.text_input(
+            "被引用数（最小）",
+            value="",
+            placeholder="指定なし",
+            key="project_filter_min_citation",
+            help="この件数以上の被引用数を持つ論文を表示（空白の場合は指定なし）"
+        )
+        # 入力値の検証と変換
+        if min_citation_input.strip():
+            try:
+                min_citation = int(min_citation_input.strip())
+            except ValueError:
+                st.error("最小被引用数は数字で入力してください")
+                min_citation = None
+        else:
+            min_citation = None
+
+    with col8:
+        max_citation_input = st.text_input(
+            "被引用数（最大）",
+            value="",
+            placeholder="指定なし",
+            key="project_filter_max_citation",
+            help="この件数以下の被引用数を持つ論文を表示（空白の場合は指定なし）"
+        )
+        # 入力値の検証と変換
+        if max_citation_input.strip():
+            try:
+                max_citation = int(max_citation_input.strip())
+            except ValueError:
+                st.error("最大被引用数は数字で入力してください")
+                max_citation = None
+        else:
+            max_citation = None
+
     # 論文リストをフィルタ
     filtered_articles = articles
 
@@ -1435,6 +1474,16 @@ def display_project_articles(
             if a.get("pub_year") is not None and (
                 (start_year is None or a.get("pub_year") >= start_year) and
                 (end_year is None or a.get("pub_year") <= end_year)
+            )
+        ]
+
+    # 被引用数フィルタ
+    if min_citation is not None or max_citation is not None:
+        filtered_articles = [
+            a for a in filtered_articles
+            if a.get("citation_count") is not None and (
+                (min_citation is None or a.get("citation_count") >= min_citation) and
+                (max_citation is None or a.get("citation_count") <= max_citation)
             )
         ]
 
@@ -2080,6 +2129,11 @@ def display_project_articles(
                 mentioned_by = article.get('mentioned_by', [])
                 if isinstance(mentioned_by, list) and len(mentioned_by) > 0:
                     st.markdown(f"**被発見数:** {len(mentioned_by)}件の論文から発見")
+
+                # 被引用数を表示（OpenAlexから取得）
+                citation_count = article.get('citation_count')
+                if citation_count is not None:
+                    st.markdown(f"**被引用数:** {citation_count}件（OpenAlex）")
 
             # アブストラクト
             if article.get('abstract'):
@@ -2892,6 +2946,11 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                 mentioned_by = article.get('mentioned_by', [])
                 if isinstance(mentioned_by, list) and len(mentioned_by) > 0:
                     st.markdown(f"**被発見数:** {len(mentioned_by)}件の論文から発見")
+
+                # 被引用数を表示（OpenAlexから取得）
+                citation_count = article.get('citation_count')
+                if citation_count is not None:
+                    st.markdown(f"**被引用数:** {citation_count}件（OpenAlex）")
 
             # アブストラクト
             if article.get('abstract'):
