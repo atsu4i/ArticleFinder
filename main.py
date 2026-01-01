@@ -360,46 +360,65 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
             f"ただし、無料枠内で計算可能な場合がほとんどで、料金はかからないかごくわずかです。"
         )
 
-        if st.button("🔮 ベクトルを計算してマップを作成", type="primary", use_container_width=True):
-            # ベクトル化を実行
-            try:
-                embedding_manager = EmbeddingManager(api_key=api_key)
+        # ベクトル計算ボタンとキャッシュクリアボタンを横並びに配置
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔮 ベクトルを計算してマップを作成", type="primary", use_container_width=True):
+                # ベクトル化を実行
+                try:
+                    embedding_manager = EmbeddingManager(api_key=api_key)
 
-                # プログレスバーを表示
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+                    # プログレスバーを表示
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
 
-                def progress_callback(message, current, total):
-                    if total > 0:
-                        progress_bar.progress(current / total)
-                    status_text.info(message)
+                    def progress_callback(message, current, total):
+                        if total > 0:
+                            progress_bar.progress(current / total)
+                        status_text.info(message)
 
-                # バッチでベクトル化
-                embedding_manager.embed_articles_batch(
-                    articles,
-                    batch_size=100,
-                    progress_callback=progress_callback
-                )
+                    # バッチでベクトル化
+                    embedding_manager.embed_articles_batch(
+                        articles,
+                        batch_size=100,
+                        progress_callback=progress_callback
+                    )
 
-                # 2次元座標を計算
-                status_text.info("UMAP で2次元座標を計算中...")
-                embedding_manager.calculate_2d_coordinates(articles)
+                    # 2次元座標を計算
+                    status_text.info("UMAP で2次元座標を計算中...")
+                    embedding_manager.calculate_2d_coordinates(articles)
 
-                progress_bar.empty()
-                status_text.success("✅ ベクトル化完了！")
+                    progress_bar.empty()
+                    status_text.success("✅ ベクトル化完了！")
 
-                # プロジェクトに保存
-                if project:
-                    for article in articles:
-                        project.add_article(article)
-                    project.save()
+                    # プロジェクトに保存
+                    if project:
+                        for article in articles:
+                            project.add_article(article)
+                        project.save()
 
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"ベクトル化中にエラーが発生しました: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+        with col2:
+            if st.button("🗑️ キャッシュクリア", use_container_width=True, help="グラフのキャッシュをクリアしてメモリを解放します", key="clear_cache_tab3_1"):
+                # クリアするセッションステートのキー
+                keys_to_clear = [
+                    'show_network_graph', 'network_graph_articles', 'network_graph_elements', 'last_network_graph_selection',
+                    'show_citation_graph', 'citation_graph_articles', 'citation_graph_elements', 'last_citation_graph_selection',
+                    'show_semantic_map', 'semantic_map_articles', 'last_semantic_map_selection',
+                    'show_results_network_graph', 'results_network_graph_articles', 'results_network_graph_elements',
+                    'selected_article_id'
+                ]
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.success(f"✅ キャッシュをクリアしました")
                 st.rerun()
-
-            except Exception as e:
-                st.error(f"ベクトル化中にエラーが発生しました: {e}")
-                import traceback
-                st.code(traceback.format_exc())
     else:
         # 全ての論文がベクトル化済み
         st.success(f"✅ 全 {total_articles} 件の論文がベクトル化済みです")
@@ -410,13 +429,31 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
         if 'semantic_map_articles' not in st.session_state:
             st.session_state.semantic_map_articles = []
 
-        # マップ生成ボタン
+        # マップ生成ボタンとキャッシュクリアボタンを横並びに配置
         button_label = "🔄 マップを更新" if st.session_state.show_semantic_map else "🔮 セマンティック・マップを生成"
 
-        if st.button(button_label, type="primary", use_container_width=True, key="generate_semantic_map_btn"):
-            st.session_state.show_semantic_map = True
-            # ボタン押下時のarticlesをスナップショットとして保存
-            st.session_state.semantic_map_articles = articles.copy()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button(button_label, type="primary", use_container_width=True, key="generate_semantic_map_btn"):
+                st.session_state.show_semantic_map = True
+                # ボタン押下時のarticlesをスナップショットとして保存
+                st.session_state.semantic_map_articles = articles.copy()
+
+        with col2:
+            if st.button("🗑️ キャッシュクリア", use_container_width=True, help="グラフのキャッシュをクリアしてメモリを解放します", key="clear_cache_tab3_2"):
+                # クリアするセッションステートのキー
+                keys_to_clear = [
+                    'show_network_graph', 'network_graph_articles', 'network_graph_elements', 'last_network_graph_selection',
+                    'show_citation_graph', 'citation_graph_articles', 'citation_graph_elements', 'last_citation_graph_selection',
+                    'show_semantic_map', 'semantic_map_articles', 'last_semantic_map_selection',
+                    'show_results_network_graph', 'results_network_graph_articles', 'results_network_graph_elements',
+                    'selected_article_id'
+                ]
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.success(f"✅ キャッシュをクリアしました")
+                st.rerun()
 
         # マップが生成済みの場合のみ表示
         if st.session_state.show_semantic_map:
@@ -1433,44 +1470,7 @@ def display_project_articles(
 
     # 可視化（ネットワークグラフ & セマンティック・マップ）
     if filtered_articles:
-        # 見出しとキャッシュクリアボタンを横並びに配置
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.subheader("📊 論文の可視化")
-        with col2:
-            if st.button("🗑️ キャッシュクリア", help="グラフのキャッシュをクリアしてメモリを解放します", key="clear_graph_cache"):
-                # クリアするセッションステートのキー
-                keys_to_clear = [
-                    # ネットワークグラフ（プロジェクト画面）
-                    'show_network_graph',
-                    'network_graph_articles',
-                    'network_graph_elements',
-                    'last_network_graph_selection',
-                    # 被引用数ネットワークグラフ（プロジェクト画面）
-                    'show_citation_graph',
-                    'citation_graph_articles',
-                    'citation_graph_elements',
-                    'last_citation_graph_selection',
-                    # セマンティックマップ
-                    'show_semantic_map',
-                    'semantic_map_articles',
-                    'last_semantic_map_selection',
-                    # ネットワークグラフ（検索結果画面）
-                    'show_results_network_graph',
-                    'results_network_graph_articles',
-                    'results_network_graph_elements',
-                    # その他
-                    'selected_article_id'
-                ]
-
-                cleared_count = 0
-                for key in keys_to_clear:
-                    if key in st.session_state:
-                        del st.session_state[key]
-                        cleared_count += 1
-
-                st.success(f"✅ {cleared_count}件のキャッシュをクリアしました")
-                st.rerun()
+        st.subheader("📊 論文の可視化")
 
         tab1, tab2, tab3 = st.tabs(["🕸️ ネットワークグラフ（被発見数）", "📊 ネットワークグラフ（被引用数）", "🔮 セマンティック・マップ"])
 
@@ -1490,15 +1490,33 @@ def display_project_articles(
             if 'network_graph_elements' not in st.session_state:
                 st.session_state.network_graph_elements = None
 
-            # グラフ生成ボタン
+            # グラフ生成ボタンとキャッシュクリアボタンを横並びに配置
             button_label = "🔄 グラフを更新" if st.session_state.show_network_graph else "🕸️ ネットワークグラフを生成"
 
-            if st.button(button_label, type="primary", use_container_width=True, key="generate_network_graph_btn"):
-                # ボタン押下時のみグラフを生成
-                with st.spinner("ネットワークグラフを生成中..."):
-                    st.session_state.network_graph_articles = filtered_articles.copy()
-                    st.session_state.network_graph_elements = generate_network_graph(st.session_state.network_graph_articles)
-                st.session_state.show_network_graph = True
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(button_label, type="primary", use_container_width=True, key="generate_network_graph_btn"):
+                    # ボタン押下時のみグラフを生成
+                    with st.spinner("ネットワークグラフを生成中..."):
+                        st.session_state.network_graph_articles = filtered_articles.copy()
+                        st.session_state.network_graph_elements = generate_network_graph(st.session_state.network_graph_articles)
+                    st.session_state.show_network_graph = True
+
+            with col2:
+                if st.button("🗑️ キャッシュクリア", use_container_width=True, help="グラフのキャッシュをクリアしてメモリを解放します", key="clear_cache_tab1"):
+                    # クリアするセッションステートのキー
+                    keys_to_clear = [
+                        'show_network_graph', 'network_graph_articles', 'network_graph_elements', 'last_network_graph_selection',
+                        'show_citation_graph', 'citation_graph_articles', 'citation_graph_elements', 'last_citation_graph_selection',
+                        'show_semantic_map', 'semantic_map_articles', 'last_semantic_map_selection',
+                        'show_results_network_graph', 'results_network_graph_articles', 'results_network_graph_elements',
+                        'selected_article_id'
+                    ]
+                    for key in keys_to_clear:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.success(f"✅ キャッシュをクリアしました")
+                    st.rerun()
 
             # グラフが生成済みの場合のみ表示
             if st.session_state.show_network_graph and st.session_state.network_graph_elements is not None:
@@ -1595,15 +1613,33 @@ def display_project_articles(
             if 'citation_graph_elements' not in st.session_state:
                 st.session_state.citation_graph_elements = None
 
-            # グラフ生成ボタン
+            # グラフ生成ボタンとキャッシュクリアボタンを横並びに配置
             button_label = "🔄 グラフを更新" if st.session_state.show_citation_graph else "📊 被引用数ネットワークグラフを生成"
 
-            if st.button(button_label, type="primary", use_container_width=True, key="generate_citation_graph_btn"):
-                # ボタン押下時のみグラフを生成
-                with st.spinner("被引用数ネットワークグラフを生成中..."):
-                    st.session_state.citation_graph_articles = filtered_articles.copy()
-                    st.session_state.citation_graph_elements = generate_citation_network_graph(st.session_state.citation_graph_articles)
-                st.session_state.show_citation_graph = True
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button(button_label, type="primary", use_container_width=True, key="generate_citation_graph_btn"):
+                    # ボタン押下時のみグラフを生成
+                    with st.spinner("被引用数ネットワークグラフを生成中..."):
+                        st.session_state.citation_graph_articles = filtered_articles.copy()
+                        st.session_state.citation_graph_elements = generate_citation_network_graph(st.session_state.citation_graph_articles)
+                    st.session_state.show_citation_graph = True
+
+            with col2:
+                if st.button("🗑️ キャッシュクリア", use_container_width=True, help="グラフのキャッシュをクリアしてメモリを解放します", key="clear_cache_tab2"):
+                    # クリアするセッションステートのキー
+                    keys_to_clear = [
+                        'show_network_graph', 'network_graph_articles', 'network_graph_elements', 'last_network_graph_selection',
+                        'show_citation_graph', 'citation_graph_articles', 'citation_graph_elements', 'last_citation_graph_selection',
+                        'show_semantic_map', 'semantic_map_articles', 'last_semantic_map_selection',
+                        'show_results_network_graph', 'results_network_graph_articles', 'results_network_graph_elements',
+                        'selected_article_id'
+                    ]
+                    for key in keys_to_clear:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.success(f"✅ キャッシュをクリアしました")
+                    st.rerun()
 
             # グラフが生成済みの場合のみ表示
             if st.session_state.show_citation_graph and st.session_state.citation_graph_elements is not None:
