@@ -5,6 +5,7 @@
 import streamlit as st
 import json
 import os
+import math
 from datetime import datetime
 from typing import Optional, List, Dict
 from article_finder import ArticleFinder
@@ -252,11 +253,10 @@ def generate_citation_network_graph(articles: List[Dict]) -> Dict:
     edges = []
     edge_id = 0
 
-    # 被引用数の最小値と最大値を取得（相対スケーリング用）
+    # 被引用数の平方根の最大値を取得（平方根スケーリング用）
     citation_counts = [a.get("citation_count", 0) for a in articles]
-    min_citations = min(citation_counts) if citation_counts else 0
     max_citations = max(citation_counts) if citation_counts else 0
-    citation_range = max_citations - min_citations
+    max_sqrt_citations = math.sqrt(max_citations) if max_citations > 0 else 0
 
     # 各論文をノードとして追加
     for article in articles:
@@ -284,14 +284,15 @@ def generate_citation_network_graph(articles: List[Dict]) -> Dict:
         else:
             score_label = "POOR"
 
-        # ノードサイズを被引用数に応じて計算（相対スケーリング: 20-120px）
-        # プロジェクト内の最小値と最大値で正規化
-        if citation_range > 0:
-            # 0-1に正規化してから20-120にマッピング
-            normalized = (citation_count - min_citations) / citation_range
+        # ノードサイズを被引用数に応じて計算（平方根スケーリング: 20-120px）
+        # 平方根を取ってから正規化することで、低い値でもある程度のサイズを確保
+        if max_sqrt_citations > 0:
+            # 平方根を取ってから0-1に正規化し、20-120pxにマッピング
+            sqrt_citation = math.sqrt(citation_count)
+            normalized = sqrt_citation / max_sqrt_citations
             node_size = 20 + int(normalized * 100)  # 20-120の範囲
         else:
-            # 全て同じ被引用数の場合
+            # 被引用数が全て0の場合
             node_size = 60  # 中間サイズ
 
         # ノードを追加
