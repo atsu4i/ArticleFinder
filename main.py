@@ -2251,6 +2251,37 @@ def display_project_articles(
                 if citation_count is not None:
                     st.markdown(f"**被引用数:** {citation_count}件（OpenAlex）")
 
+                # グラフで探すボタン
+                search_id_for_graph = str(pmid) if pmid else doi if doi else None
+                if search_id_for_graph:
+                    if st.button(
+                        "📍 グラフで探す",
+                        key=f"locate_in_graph_{article_id}_{i}",
+                        type="secondary",
+                        use_container_width=True,
+                        help="可視化タブでこの論文を強調表示します"
+                    ):
+                        # 各グラフの検索フィールドに値を設定
+                        st.session_state.network_graph_search = search_id_for_graph
+                        st.session_state.citation_graph_search = search_id_for_graph
+                        st.session_state.semantic_map_search = search_id_for_graph
+                        st.session_state.semantic_map_search_id = search_id_for_graph
+
+                        # 既にグラフが生成されている場合は再生成
+                        if st.session_state.get('show_network_graph', False):
+                            st.session_state.network_graph_elements = generate_network_graph(
+                                st.session_state.network_graph_articles,
+                                highlight_id=search_id_for_graph
+                            )
+                        if st.session_state.get('show_citation_graph', False):
+                            st.session_state.citation_graph_elements = generate_citation_network_graph(
+                                st.session_state.citation_graph_articles,
+                                highlight_id=search_id_for_graph
+                            )
+
+                        st.success(f"✅ 可視化タブでこの論文が強調表示されます。上の「📊 論文の可視化」タブをご確認ください。")
+                        st.info(f"🔍 検索ID: {search_id_for_graph}")
+
             # アブストラクト
             if article.get('abstract'):
                 with st.container():
@@ -3067,6 +3098,37 @@ def display_results(result: dict, project=None, use_kyoto_links: bool = False):
                 citation_count = article.get('citation_count')
                 if citation_count is not None:
                     st.markdown(f"**被引用数:** {citation_count}件（OpenAlex）")
+
+                # グラフで探すボタン
+                search_id_for_graph = str(pmid) if pmid else doi if doi else None
+                if search_id_for_graph:
+                    if st.button(
+                        "📍 グラフで探す",
+                        key=f"locate_in_graph_{article_id}_{i}",
+                        type="secondary",
+                        use_container_width=True,
+                        help="可視化タブでこの論文を強調表示します"
+                    ):
+                        # 各グラフの検索フィールドに値を設定
+                        st.session_state.network_graph_search = search_id_for_graph
+                        st.session_state.citation_graph_search = search_id_for_graph
+                        st.session_state.semantic_map_search = search_id_for_graph
+                        st.session_state.semantic_map_search_id = search_id_for_graph
+
+                        # 既にグラフが生成されている場合は再生成
+                        if st.session_state.get('show_network_graph', False):
+                            st.session_state.network_graph_elements = generate_network_graph(
+                                st.session_state.network_graph_articles,
+                                highlight_id=search_id_for_graph
+                            )
+                        if st.session_state.get('show_citation_graph', False):
+                            st.session_state.citation_graph_elements = generate_citation_network_graph(
+                                st.session_state.citation_graph_articles,
+                                highlight_id=search_id_for_graph
+                            )
+
+                        st.success(f"✅ 可視化タブでこの論文が強調表示されます。上の「📊 論文の可視化」タブをご確認ください。")
+                        st.info(f"🔍 検索ID: {search_id_for_graph}")
 
             # アブストラクト
             if article.get('abstract'):
