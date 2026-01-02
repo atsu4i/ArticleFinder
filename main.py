@@ -496,6 +496,7 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
                         full_title = article.get("title", "")
                         relevance_score = article.get("relevance_score", 0)
                         link_count = len(article.get("mentioned_by", []))
+                        citation_count = article.get("citation_count", 0)
                         article_id = article.get("article_id", "")
 
                         df_data.append({
@@ -508,11 +509,12 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
 
                         # カスタムデータ（ホバー表示用）
                         customdata_list.append([
-                            article_id,
-                            full_title,
-                            display_id,
-                            relevance_score,
-                            link_count
+                            article_id,        # [0]
+                            full_title,        # [1]
+                            display_id,        # [2]
+                            relevance_score,   # [3]
+                            link_count,        # [4]
+                            citation_count     # [5]
                         ])
 
                 df = pd.DataFrame(df_data)
@@ -543,6 +545,7 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
                                   "ID: %{customdata[2]}<br>" +
                                   "関連性スコア: %{customdata[3]}<br>" +
                                   "被発見数: %{customdata[4]}件<br>" +
+                                  "被引用数: %{customdata[5]}件<br>" +
                                   "<extra></extra>"
                 )
 
