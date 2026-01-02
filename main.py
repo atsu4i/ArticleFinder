@@ -1507,6 +1507,31 @@ def display_project_articles(
         else:
             max_citation = None
 
+    # 発見元論文フィルタ（4列目の行）
+    st.text_input(
+        "発見元論文（PMID または DOI）",
+        value="",
+        placeholder="例: 12345678 または 10.1038/...",
+        key="project_filter_source_article",
+        help="指定した論文から抽出された論文のみを表示（空白の場合は指定なし）"
+    )
+    source_article_input = st.session_state.get("project_filter_source_article", "").strip()
+
+    # 発見元論文のarticle_idを取得
+    source_article_id = None
+    if source_article_input:
+        # PMIDまたはDOIで論文を検索
+        for article in articles:
+            pmid = article.get("pmid", "")
+            doi = article.get("doi", "")
+            if (pmid and str(pmid) == source_article_input) or (doi and doi == source_article_input):
+                source_article_id = article.get("article_id")
+                break
+
+        # 見つからない場合は警告
+        if source_article_id is None:
+            st.warning(f"⚠️ 指定された論文が見つかりません: {source_article_input}")
+
     # 論文リストをフィルタ
     filtered_articles = articles
 
@@ -1549,6 +1574,13 @@ def display_project_articles(
                 (min_citation is None or a.get("citation_count") >= min_citation) and
                 (max_citation is None or a.get("citation_count") <= max_citation)
             )
+        ]
+
+    # 発見元論文フィルタ
+    if source_article_id is not None:
+        filtered_articles = [
+            a for a in filtered_articles
+            if source_article_id in a.get("mentioned_by", [])
         ]
 
     # ページネーション設定
