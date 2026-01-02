@@ -147,7 +147,7 @@ def save_user_settings(settings: Dict) -> bool:
 
 
 @st.cache_data
-def generate_network_graph(articles: List[Dict]) -> Dict:
+def generate_network_graph(articles: List[Dict], highlight_id: str = "") -> Dict:
     """
     論文のネットワークグラフを生成（st-link-analysis用）
 
@@ -178,8 +178,17 @@ def generate_network_graph(articles: List[Dict]) -> Dict:
         doi = article.get("doi", "")
         display_id = f"PMID:{pmid}" if pmid else f"DOI:{doi}"
 
+        # 検索対象かどうかを判定
+        is_highlighted = False
+        if highlight_id:
+            # PMID または DOI で一致するかチェック
+            if (pmid and str(pmid) == highlight_id) or (doi and doi == highlight_id):
+                is_highlighted = True
+
         # スコアに応じたラベルを設定（色分け用・5段階）
-        if relevance_score >= 81:
+        if is_highlighted:
+            score_label = "HIGHLIGHT"  # 強調表示
+        elif relevance_score >= 81:
             score_label = "EXCELLENT"  # 81-100: 濃い赤
         elif relevance_score >= 61:
             score_label = "GOOD"  # 61-80: オレンジ
@@ -192,7 +201,11 @@ def generate_network_graph(articles: List[Dict]) -> Dict:
 
         # ノードサイズを関連論文数に応じて計算（20-120の範囲）
         # link_count を使ってサイズを動的に変更
-        node_size = 20 + min(link_count * 10, 100)  # 最小20、最大120
+        # ハイライトの場合は大きく表示
+        if is_highlighted:
+            node_size = 150  # 強調表示用に大きく
+        else:
+            node_size = 20 + min(link_count * 10, 100)  # 最小20、最大120
 
         # ノードを追加（Cytoscape.js形式）
         # サイドパネルに表示する情報を最小限に
@@ -236,7 +249,7 @@ def generate_network_graph(articles: List[Dict]) -> Dict:
 
 
 @st.cache_data
-def generate_citation_network_graph(articles: List[Dict]) -> Dict:
+def generate_citation_network_graph(articles: List[Dict], highlight_id: str = "") -> Dict:
     """
     論文のネットワークグラフを生成（被引用数ベース、st-link-analysis用）
 
@@ -272,8 +285,17 @@ def generate_citation_network_graph(articles: List[Dict]) -> Dict:
         doi = article.get("doi", "")
         display_id = f"PMID:{pmid}" if pmid else f"DOI:{doi}"
 
+        # 検索対象かどうかを判定
+        is_highlighted = False
+        if highlight_id:
+            # PMID または DOI で一致するかチェック
+            if (pmid and str(pmid) == highlight_id) or (doi and doi == highlight_id):
+                is_highlighted = True
+
         # スコアに応じたラベルを設定（色分け用・5段階）
-        if relevance_score >= 81:
+        if is_highlighted:
+            score_label = "HIGHLIGHT"  # 強調表示
+        elif relevance_score >= 81:
             score_label = "EXCELLENT"
         elif relevance_score >= 61:
             score_label = "GOOD"
@@ -286,7 +308,10 @@ def generate_citation_network_graph(articles: List[Dict]) -> Dict:
 
         # ノードサイズを被引用数に応じて計算（平方根スケーリング: 20-120px）
         # 平方根を取ってから正規化することで、低い値でもある程度のサイズを確保
-        if max_sqrt_citations > 0:
+        # ハイライトの場合は大きく表示
+        if is_highlighted:
+            node_size = 150  # 強調表示用に大きく
+        elif max_sqrt_citations > 0:
             # 平方根を取ってから0-1に正規化し、20-120pxにマッピング
             sqrt_citation = math.sqrt(citation_count)
             normalized = sqrt_citation / max_sqrt_citations
@@ -430,6 +455,15 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
         if 'semantic_map_articles' not in st.session_state:
             st.session_state.semantic_map_articles = []
 
+        # 論文検索機能
+        search_id_semantic = st.text_input(
+            "🔍 論文を検索（PMID または DOI）",
+            value="",
+            placeholder="例: 12345678 または 10.1038/...",
+            key="semantic_map_search",
+            help="指定した論文をマップ上で強調表示します"
+        )
+
         # マップ生成ボタンとキャッシュクリアボタンを横並びに配置
         button_label = "🔄 マップを更新" if st.session_state.show_semantic_map else "🔮 セマンティック・マップを生成"
 
@@ -439,6 +473,7 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
                 st.session_state.show_semantic_map = True
                 # ボタン押下時のarticlesをスナップショットとして保存
                 st.session_state.semantic_map_articles = articles.copy()
+                st.session_state.semantic_map_search_id = search_id_semantic.strip()
 
         with col2:
             if st.button("🗑️ キャッシュクリア", use_container_width=True, help="グラフのキャッシュをクリアしてメモリを解放します", key="clear_cache_tab3_2"):
@@ -561,6 +596,32 @@ def generate_semantic_map(articles: List[Dict], api_key: str, project=None):
                 # 軸の目盛りを非表示
                 fig.update_xaxes(showticklabels=False, showgrid=False)
                 fig.update_yaxes(showticklabels=False, showgrid=False)
+
+                # 検索された論文を強調表示
+                if 'semantic_map_search_id' in st.session_state and st.session_state.semantic_map_search_id:
+                    highlight_id = st.session_state.semantic_map_search_id
+                    # 該当する論文を検索
+                    for article in map_articles:
+                        if article.get("umap_x") is not None and article.get("umap_y") is not None:
+                            pmid = article.get("pmid", "")
+                            doi = article.get("doi", "")
+                            if (pmid and str(pmid) == highlight_id) or (doi and doi == highlight_id):
+                                # 該当する論文を星マーカーで強調表示
+                                fig.add_scatter(
+                                    x=[article["umap_x"]],
+                                    y=[article["umap_y"]],
+                                    mode='markers',
+                                    marker=dict(
+                                        symbol='star',
+                                        size=30,
+                                        color='lime',
+                                        line=dict(color='darkgreen', width=2)
+                                    ),
+                                    name=f'🔍 検索結果',
+                                    hovertext=article.get("title", "")[:100],
+                                    showlegend=True
+                                )
+                                break
 
                 # クリックイベントを受け取る
                 selected = st.plotly_chart(
@@ -1543,6 +1604,15 @@ def display_project_articles(
             if 'network_graph_elements' not in st.session_state:
                 st.session_state.network_graph_elements = None
 
+            # 論文検索機能
+            search_id = st.text_input(
+                "🔍 論文を検索（PMID または DOI）",
+                value="",
+                placeholder="例: 12345678 または 10.1038/...",
+                key="network_graph_search",
+                help="指定した論文をグラフ上で強調表示します"
+            )
+
             # グラフ生成ボタンとキャッシュクリアボタンを横並びに配置
             button_label = "🔄 グラフを更新" if st.session_state.show_network_graph else "🕸️ ネットワークグラフを生成"
 
@@ -1552,7 +1622,7 @@ def display_project_articles(
                     # ボタン押下時のみグラフを生成
                     with st.spinner("ネットワークグラフを生成中..."):
                         st.session_state.network_graph_articles = filtered_articles.copy()
-                        st.session_state.network_graph_elements = generate_network_graph(st.session_state.network_graph_articles)
+                        st.session_state.network_graph_elements = generate_network_graph(st.session_state.network_graph_articles, highlight_id=search_id.strip())
                     st.session_state.show_network_graph = True
 
             with col2:
@@ -1577,9 +1647,10 @@ def display_project_articles(
                     # キャッシュされた要素を使用（再生成しない）
                     elements = st.session_state.network_graph_elements
 
-                    # NodeStyle と EdgeStyle を定義（5段階）
+                    # NodeStyle と EdgeStyle を定義（5段階 + ハイライト）
                     # アイコンパラメータを省略して色のみで表現
                     node_styles = [
+                        NodeStyle("HIGHLIGHT", "#00FF00", "name"),  # ハイライト: 明るい緑
                         NodeStyle("EXCELLENT", "#FF2D2D", "name"),  # 81-100: 濃い赤
                         NodeStyle("GOOD", "#FF8C42", "name"),  # 61-80: オレンジ
                         NodeStyle("MODERATE", "#FFD700", "name"),  # 41-60: 黄色
@@ -1666,6 +1737,15 @@ def display_project_articles(
             if 'citation_graph_elements' not in st.session_state:
                 st.session_state.citation_graph_elements = None
 
+            # 論文検索機能
+            search_id_citation = st.text_input(
+                "🔍 論文を検索（PMID または DOI）",
+                value="",
+                placeholder="例: 12345678 または 10.1038/...",
+                key="citation_graph_search",
+                help="指定した論文をグラフ上で強調表示します"
+            )
+
             # グラフ生成ボタンとキャッシュクリアボタンを横並びに配置
             button_label = "🔄 グラフを更新" if st.session_state.show_citation_graph else "📊 被引用数ネットワークグラフを生成"
 
@@ -1675,7 +1755,7 @@ def display_project_articles(
                     # ボタン押下時のみグラフを生成
                     with st.spinner("被引用数ネットワークグラフを生成中..."):
                         st.session_state.citation_graph_articles = filtered_articles.copy()
-                        st.session_state.citation_graph_elements = generate_citation_network_graph(st.session_state.citation_graph_articles)
+                        st.session_state.citation_graph_elements = generate_citation_network_graph(st.session_state.citation_graph_articles, highlight_id=search_id_citation.strip())
                     st.session_state.show_citation_graph = True
 
             with col2:
@@ -1700,8 +1780,9 @@ def display_project_articles(
                     # キャッシュされた要素を使用（再生成しない）
                     elements = st.session_state.citation_graph_elements
 
-                    # NodeStyle と EdgeStyle を定義（5段階）
+                    # NodeStyle と EdgeStyle を定義（5段階 + ハイライト）
                     node_styles = [
+                        NodeStyle("HIGHLIGHT", "#00FF00", "name"),  # ハイライト: 明るい緑
                         NodeStyle("EXCELLENT", "#FF2D2D", "name"),  # 81-100: 濃い赤
                         NodeStyle("GOOD", "#FF8C42", "name"),  # 61-80: オレンジ
                         NodeStyle("MODERATE", "#FFD700", "name"),  # 41-60: 黄色
