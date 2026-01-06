@@ -2311,7 +2311,7 @@ def display_project_articles(
                 if search_id_for_graph:
                     if st.button(
                         "📍 グラフで探す",
-                        key=f"locate_in_graph_{article_id}_{i}",
+                        key=f"locate_in_graph_project_{article_id}_{i}",
                         type="secondary",
                         use_container_width=True,
                         help="可視化タブでこの論文を強調表示します"
@@ -3154,7 +3154,7 @@ def display_results(result: dict, project=None, doi_proxy_template: str = '', li
                 if search_id_for_graph:
                     if st.button(
                         "📍 グラフで探す",
-                        key=f"locate_in_graph_{article_id}_{i}",
+                        key=f"locate_in_graph_search_{article_id}_{i}",
                         type="secondary",
                         use_container_width=True,
                         help="可視化タブでこの論文を強調表示します"
