@@ -74,7 +74,7 @@
   - Notionページへ直接リンク
   - Notion未登録論文のみ表示するフィルタ
   - 連携情報の永続化（再読み込み時も反映）
-- **京都大学図書館Article Linker**: 各論文からワンクリックでアクセス可能
+- **機関別リンク設定**: 所属機関の電子ジャーナルプロキシやArticle Linkerを設定可能（主要大学の設定例あり）
 
 ## 🚀 セットアップ
 
@@ -167,6 +167,108 @@ OPENALEX_EMAIL=your_email@example.com
 - メールアドレス設定あり: **10リクエスト/秒**（Polite pool）
 
 詳細: [OpenAlex Rate Limits](https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication)
+
+#### 6. 機関別リンク設定（オプション）
+
+所属機関の電子ジャーナルアクセスやArticle Linkerを利用する場合に設定します。
+
+**設定方法**:
+1. アプリ起動後、サイドバーの「機関別リンク設定」を開く
+2. 以下のテンプレートを入力（`{doi}` や `{pmid}` が自動置換されます）
+   - **DOIプロキシURL テンプレート**: 機関のプロキシ経由でDOIにアクセス
+   - **図書館リンクURL テンプレート**: 機関のArticle Linkerにアクセス
+
+**主要大学の設定例**:
+<details>
+<summary>🎓 東京大学</summary>
+
+```
+DOIプロキシURL テンプレート:
+https://doi-org.utokyo.idm.oclc.org/{doi}
+
+図書館リンクURL テンプレート:
+https://vs2ga4mq9g.search.serialssolutions.com/?sid=Entrez:PubMed&id=doi:{doi}
+```
+</details>
+
+<details>
+<summary>🎓 京都大学</summary>
+
+```
+DOIプロキシURL テンプレート:
+https://doi-org.kyoto-u.idm.oclc.org/{doi}
+
+図書館リンクURL テンプレート:
+https://tt2mx4dc7s.search.serialssolutions.com/?sid=Entrez:PubMed&id=doi:{doi}
+```
+</details>
+
+<details>
+<summary>🎓 大阪大学</summary>
+
+```
+DOIプロキシURL テンプレート:
+https://doi-org.osaka-u.idm.oclc.org/{doi}
+
+図書館リンクURL テンプレート:
+（各自の所属図書館にご確認ください）
+```
+</details>
+
+<details>
+<summary>🎓 東北大学</summary>
+
+```
+DOIプロキシURL テンプレート:
+https://doi-org.tohoku.idm.oclc.org/{doi}
+
+図書館リンクURL テンプレート:
+（各自の所属図書館にご確認ください）
+```
+</details>
+
+<details>
+<summary>🎓 北海道大学</summary>
+
+```
+DOIプロキシURL テンプレート:
+https://doi-org.hokudai.idm.oclc.org/{doi}
+
+図書館リンクURL テンプレート:
+（各自の所属図書館にご確認ください）
+```
+</details>
+
+<details>
+<summary>🎓 九州大学</summary>
+
+```
+DOIプロキシURL テンプレート:
+https://doi-org.kyushu-u.idm.oclc.org/{doi}
+
+図書館リンクURL テンプレート:
+（各自の所属図書館にご確認ください）
+```
+</details>
+
+<details>
+<summary>🎓 名古屋大学</summary>
+
+```
+DOIプロキシURL テンプレート:
+https://doi-org.nagoya-u.idm.oclc.org/{doi}
+
+図書館リンクURL テンプレート:
+（各自の所属図書館にご確認ください）
+```
+</details>
+
+**注意事項**:
+- DOIプロキシURLは多くの大学で `https://doi-org.[大学コード].idm.oclc.org/{doi}` の形式です
+- 上記以外の大学の場合、所属機関の図書館システムにお問い合わせください
+- Article LinkerのURLは機関によって異なるため、図書館にご確認ください
+- 設定は `user_settings.json` に保存され、次回起動時も維持されます
+- 空欄の場合は通常のDOIリンクが表示されます
 
 ## 📖 使い方
 
