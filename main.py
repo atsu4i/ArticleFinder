@@ -2379,7 +2379,6 @@ def display_project_articles(
                 project.articles[article_id] = article
                 project.save()
                 st.success("メモを保存しました")
-                st.rerun()
 
             st.divider()
 
@@ -3227,7 +3226,6 @@ def display_results(result: dict, project=None, doi_proxy_template: str = '', li
                         project.articles[article_id] = project_article
                         project.save()
                         st.success("メモを保存しました")
-                        st.rerun()
                     else:
                         st.warning("この論文はプロジェクトに保存されていません")
 
