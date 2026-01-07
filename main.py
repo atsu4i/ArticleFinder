@@ -258,7 +258,7 @@ def generate_network_graph(articles: List[Dict], highlight_id: str = "") -> Dict
             "data": {
                 "id": article_id,
                 "label": score_label,
-                "name": title[:80] + "..." if len(title) > 80 else title,  # タイトルを表示（80文字まで）
+                "name": (title[:80] + "..." if len(title) > 80 else title) if title else "タイトル不明",  # タイトルを表示（80文字まで）
                 "score": relevance_score,
                 "links": link_count,
                 "pmid": pmid if pmid else "-",
@@ -370,7 +370,7 @@ def generate_citation_network_graph(articles: List[Dict], highlight_id: str = ""
             "data": {
                 "id": article_id,
                 "label": score_label,
-                "name": title[:80] + "..." if len(title) > 80 else title,
+                "name": (title[:80] + "..." if len(title) > 80 else title) if title else "タイトル不明",
                 "score": relevance_score,
                 "links": link_count,
                 "citations": citation_count,  # 被引用数を追加
