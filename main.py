@@ -1448,6 +1448,15 @@ def display_project_articles(
             help="PMIDがある論文のみ表示（DOIのみの論文を除外）"
         )
 
+        # 確認済みフィルタ
+        checked_filter = st.radio(
+            "確認済み状態",
+            options=["すべて", "確認済みのみ", "未確認のみ"],
+            index=0,
+            key="project_filter_checked",
+            help="論文の確認済み状態でフィルタリングします"
+        )
+
     with col3:
         # セッション状態の初期化
         if 'filter_project_slider' not in st.session_state:
@@ -1643,6 +1652,12 @@ def display_project_articles(
             a for a in filtered_articles
             if source_article_id in a.get("mentioned_by", [])
         ]
+
+    # 確認済みフィルタ
+    if checked_filter == "確認済みのみ":
+        filtered_articles = [a for a in filtered_articles if a.get("checked", False)]
+    elif checked_filter == "未確認のみ":
+        filtered_articles = [a for a in filtered_articles if not a.get("checked", False)]
 
     # ページネーション設定
     ITEMS_PER_PAGE = 100
@@ -2353,6 +2368,20 @@ def display_project_articles(
                 st.markdown("**AI評価理由:**")
                 st.info(article['relevance_reasoning'])
 
+            # 確認済みチェックボックス
+            checked = st.checkbox(
+                "✅ 確認済み",
+                value=article.get('checked', False),
+                key=f"checked_{article_id}_{i}",
+                help="この論文を確認済みとしてマークします"
+            )
+
+            # チェック状態が変更された場合は保存
+            if checked != article.get('checked', False):
+                article['checked'] = checked
+                project.articles[article_id] = article
+                project.save()
+
             # コメント・メモ機能
             st.markdown("**📝 メモ・コメント:**")
             existing_comment = article.get('comment', '')
@@ -2644,6 +2673,18 @@ def display_results(result: dict, project=None, doi_proxy_template: str = '', li
             key="results_filter_pubmed_only",
             help="PMIDがある論文のみ表示（DOIのみの論文を除外）"
         )
+
+        # 確認済みフィルタ（プロジェクトがある場合のみ）
+        if project:
+            checked_filter_results = st.radio(
+                "確認済み状態",
+                options=["すべて", "確認済みのみ", "未確認のみ"],
+                index=0,
+                key="results_filter_checked",
+                help="論文の確認済み状態でフィルタリングします"
+            )
+        else:
+            checked_filter_results = "すべて"
 
     with col4:
         # セッション状態の初期化
@@ -3195,12 +3236,28 @@ def display_results(result: dict, project=None, doi_proxy_template: str = '', li
                 st.markdown("**AI評価理由:**")
                 st.info(article['relevance_reasoning'])
 
-            # コメント・メモ機能（プロジェクトがある場合のみ）
+            # 確認済みチェックボックス・メモ機能（プロジェクトがある場合のみ）
             if project:
-                st.markdown("**📝 メモ・コメント:**")
-
                 # プロジェクトから最新の論文データを取得
                 project_article = project.get_article_by_id(article_id)
+
+                if project_article:
+                    # 確認済みチェックボックス
+                    checked = st.checkbox(
+                        "✅ 確認済み",
+                        value=project_article.get('checked', False),
+                        key=f"checked_result_{article_id}_{i}",
+                        help="この論文を確認済みとしてマークします"
+                    )
+
+                    # チェック状態が変更された場合は保存
+                    if checked != project_article.get('checked', False):
+                        project_article['checked'] = checked
+                        project.articles[article_id] = project_article
+                        project.save()
+
+                st.markdown("**📝 メモ・コメント:**")
+
                 existing_comment = project_article.get('comment', '') if project_article else ''
 
                 # コメント入力エリア
