@@ -2373,14 +2373,14 @@ def display_project_articles(
                 "✅ 確認済み",
                 value=article.get('checked', False),
                 key=f"checked_{article_id}_{i}",
-                help="この論文を確認済みとしてマークします"
+                help="この論文を確認済みとしてマークします（自動保存されます）"
             )
 
-            # チェック状態が変更された場合は保存
-            if checked != article.get('checked', False):
-                article['checked'] = checked
-                project.articles[article_id] = article
-                project.save()
+            # チェック状態をsession_stateに記録（即座にファイル保存はしない）
+            if f"checked_{article_id}_{i}" in st.session_state:
+                if 'pending_checked_changes' not in st.session_state:
+                    st.session_state.pending_checked_changes = {}
+                st.session_state.pending_checked_changes[article_id] = checked
 
             # コメント・メモ機能
             st.markdown("**📝 メモ・コメント:**")
@@ -2401,13 +2401,23 @@ def display_project_articles(
                 "💾 メモを保存",
                 key=f"save_comment_{article_id}_{i}",
                 type="secondary",
-                help="メモをプロジェクトに保存します"
+                help="メモと確認済み状態をプロジェクトに保存します"
             ):
                 # 論文のコメントを更新
                 article['comment'] = comment
+
+                # 保留中のチェック状態も一緒に保存
+                if 'pending_checked_changes' in st.session_state and article_id in st.session_state.pending_checked_changes:
+                    article['checked'] = st.session_state.pending_checked_changes[article_id]
+
                 project.articles[article_id] = article
                 project.save()
-                st.success("メモを保存しました")
+
+                # 保存済みなので保留リストから削除
+                if 'pending_checked_changes' in st.session_state and article_id in st.session_state.pending_checked_changes:
+                    del st.session_state.pending_checked_changes[article_id]
+
+                st.success("メモと確認済み状態を保存しました")
 
             st.divider()
 
@@ -3247,14 +3257,14 @@ def display_results(result: dict, project=None, doi_proxy_template: str = '', li
                         "✅ 確認済み",
                         value=project_article.get('checked', False),
                         key=f"checked_result_{article_id}_{i}",
-                        help="この論文を確認済みとしてマークします"
+                        help="この論文を確認済みとしてマークします（自動保存されます）"
                     )
 
-                    # チェック状態が変更された場合は保存
-                    if checked != project_article.get('checked', False):
-                        project_article['checked'] = checked
-                        project.articles[article_id] = project_article
-                        project.save()
+                    # チェック状態をsession_stateに記録（即座にファイル保存はしない）
+                    if f"checked_result_{article_id}_{i}" in st.session_state:
+                        if 'pending_checked_changes' not in st.session_state:
+                            st.session_state.pending_checked_changes = {}
+                        st.session_state.pending_checked_changes[article_id] = checked
 
                 st.markdown("**📝 メモ・コメント:**")
 
@@ -3275,14 +3285,24 @@ def display_results(result: dict, project=None, doi_proxy_template: str = '', li
                     "💾 メモを保存",
                     key=f"save_comment_result_{article_id}_{i}",
                     type="secondary",
-                    help="メモをプロジェクトに保存します"
+                    help="メモと確認済み状態をプロジェクトに保存します"
                 ):
                     if project_article:
                         # 論文のコメントを更新
                         project_article['comment'] = comment
+
+                        # 保留中のチェック状態も一緒に保存
+                        if 'pending_checked_changes' in st.session_state and article_id in st.session_state.pending_checked_changes:
+                            project_article['checked'] = st.session_state.pending_checked_changes[article_id]
+
                         project.articles[article_id] = project_article
                         project.save()
-                        st.success("メモを保存しました")
+
+                        # 保存済みなので保留リストから削除
+                        if 'pending_checked_changes' in st.session_state and article_id in st.session_state.pending_checked_changes:
+                            del st.session_state.pending_checked_changes[article_id]
+
+                        st.success("メモと確認済み状態を保存しました")
                     else:
                         st.warning("この論文はプロジェクトに保存されていません")
 
