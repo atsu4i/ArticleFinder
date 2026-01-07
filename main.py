@@ -1258,6 +1258,14 @@ def display_project_articles(
     library_link_template: str = ''
 ):
     """プロジェクト内の論文を表示"""
+    # 保留中のチェック状態を自動保存（フィルタ変更時など）
+    if 'pending_checked_changes' in st.session_state and st.session_state.pending_checked_changes:
+        for article_id, checked_value in st.session_state.pending_checked_changes.items():
+            if article_id in project.articles:
+                project.articles[article_id]['checked'] = checked_value
+        project.save()
+        st.session_state.pending_checked_changes = {}
+
     articles = project.get_all_articles()
 
     # 関連性スコアでソート
