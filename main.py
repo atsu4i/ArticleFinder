@@ -2625,6 +2625,13 @@ def display_results(result: dict, project=None, doi_proxy_template: str = '', li
         doi_proxy_template: DOIプロキシURLテンプレート
         library_link_template: 図書館リンクURLテンプレート
     """
+    # 保留中のチェック状態を自動保存（フィルタ変更時など）
+    if project and 'pending_checked_changes' in st.session_state and st.session_state.pending_checked_changes:
+        for article_id, checked_value in st.session_state.pending_checked_changes.items():
+            if article_id in project.articles:
+                project.articles[article_id]['checked'] = checked_value
+        project.save()
+        st.session_state.pending_checked_changes = {}
 
     articles = result["articles"]
     stats = result["stats"]
