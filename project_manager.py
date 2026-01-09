@@ -195,17 +195,42 @@ class Project:
             self.articles = json.load(f)
 
     def save(self):
-        """プロジェクトを保存"""
+        """プロジェクトを保存（アトミックな書き込み）"""
+        import tempfile
+        import shutil
+
         # 更新日時を更新
         self.metadata["updated_at"] = datetime.now().isoformat()
 
-        # メタデータを保存
-        with open(self.metadata_path, 'w', encoding='utf-8') as f:
-            json.dump(self.metadata, f, ensure_ascii=False, indent=2)
+        # メタデータを保存（一時ファイル経由）
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
+                                            dir=self.project_path, delete=False,
+                                            suffix='.tmp') as tmp:
+                json.dump(self.metadata, tmp, ensure_ascii=False, indent=2)
+                tmp_path = tmp.name
+            # アトミックにリネーム
+            shutil.move(tmp_path, self.metadata_path)
+        except Exception as e:
+            # エラー時は一時ファイルを削除
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
 
-        # 論文データを保存
-        with open(self.articles_path, 'w', encoding='utf-8') as f:
-            json.dump(self.articles, f, ensure_ascii=False, indent=2)
+        # 論文データを保存（一時ファイル経由）
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
+                                            dir=self.project_path, delete=False,
+                                            suffix='.tmp') as tmp:
+                json.dump(self.articles, tmp, ensure_ascii=False, indent=2)
+                tmp_path = tmp.name
+            # アトミックにリネーム
+            shutil.move(tmp_path, self.articles_path)
+        except Exception as e:
+            # エラー時は一時ファイルを削除
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
 
     def has_article(self, pmid: str) -> bool:
         """
