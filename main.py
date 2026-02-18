@@ -5,6 +5,7 @@
 import streamlit as st
 import json
 import os
+import re
 import math
 from datetime import datetime
 from typing import Optional, List, Dict, Tuple
@@ -189,6 +190,82 @@ def save_user_settings(settings: Dict) -> bool:
     except Exception as e:
         print(f"Failed to save user settings: {e}")
         return False
+
+
+def generate_fake_article_from_query(query: str, api_key: str) -> Dict[str, str]:
+    """
+    ユーザーのクエリから仮のタイトルとアブストラクトを生成
+
+    Args:
+        query: ユーザーの検索クエリ
+        api_key: Gemini API Key
+
+    Returns:
+        {"title": str, "abstract": str}
+    """
+    import google.generativeai as genai
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-2.5-flash")
+
+    prompt = f"""あなたは科学論文のタイトルとアブストラクトを生成する専門家です。
+
+以下のユーザーの検索クエリから、関連する仮想的な論文のタイトルとアブストラクトを生成してください。
+
+検索クエリ: {query}
+
+以下の形式で出力してください：
+TITLE: [論文タイトル]
+ABSTRACT: [論文アブストラクト（200-300語程度）]
+
+注意事項：
+- タイトルは簡潔で学術的なものにしてください
+- アブストラクトは研究の背景、目的、方法、結果、結論を含む標準的な構造にしてください
+- クエリのキーワードを適切に含めてください
+- 英語で生成してください"""
+
+    try:
+        response = model.generate_content(prompt)
+        text = response.text
+
+        # TITLE: と ABSTRACT: を抽出
+        title_match = re.search(r'TITLE:\s*(.+?)(?=\n|ABSTRACT:|$)', text, re.DOTALL)
+        abstract_match = re.search(r'ABSTRACT:\s*(.+)', text, re.DOTALL)
+
+        title = title_match.group(1).strip() if title_match else query
+        abstract = abstract_match.group(1).strip() if abstract_match else query
+
+        return {"title": title, "abstract": abstract}
+
+    except Exception as e:
+        print(f"Error generating fake article: {e}")
+        return {"title": query, "abstract": query}
+
+
+def calculate_cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
+    """
+    2つのベクトル間のコサイン類似度を計算
+
+    Args:
+        vec1: ベクトル1
+        vec2: ベクトル2
+
+    Returns:
+        コサイン類似度（0.0-1.0）
+    """
+    import numpy as np
+
+    v1 = np.array(vec1)
+    v2 = np.array(vec2)
+
+    # ノルムが0の場合は0を返す
+    norm1 = np.linalg.norm(v1)
+    norm2 = np.linalg.norm(v2)
+
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+
+    return float(np.dot(v1, v2) / (norm1 * norm2))
 
 
 @st.cache_data
@@ -1697,6 +1774,282 @@ def display_project_articles(
     st.markdown('<div id="article-list-top"></div>', unsafe_allow_html=True)
 
     st.info(f"表示件数: {len(filtered_articles)} / {len(articles)}")
+
+    # テーマ再検索機能
+    if filtered_articles:
+        st.subheader("🔄 テーマ再検索")
+        st.info(
+            "**テーマ再検索機能**\n\n"
+            "既に評価済みの論文を、新しい研究テーマで再評価します。\n"
+            "ベクトル類似度を使って関連性の高い論文を見つけます。\n\n"
+            "⚠️ **注意**: 現在のフィルタ設定が適用されます。プロジェクト全体を対象にする場合は、フィルタをリセットしてください。"
+        )
+
+        # 検索クエリ入力
+        search_query = st.text_area(
+            "🔍 検索したい研究テーマ・内容",
+            value="",
+            placeholder="例: 小児の発熱に対する解熱剤の効果と安全性",
+            help="新しい研究テーマや興味のあるトピックを入力してください",
+            height=100,
+            key="vector_search_query"
+        )
+
+        # 表示件数選択とボタンを横並びに
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            top_n = st.slider(
+                "表示する論文数",
+                min_value=10,
+                max_value=min(200, len(filtered_articles)),
+                value=min(50, len(filtered_articles)),
+                step=10,
+                help="類似度の高い上位N件を表示します",
+                key="vector_search_top_n"
+            )
+
+        with col2:
+            search_button = st.button(
+                "🔄 検索を実行",
+                type="primary",
+                use_container_width=True,
+                disabled=not search_query.strip(),
+                key="vector_search_button"
+            )
+
+
+        if search_button and search_query.strip():
+            with st.spinner("検索中..."):
+                try:
+                    # 1. クエリから仮のタイトルとアブストラクトを生成
+                    st.info("⏳ ステップ1/3: クエリから仮想論文を生成中...")
+                    fake_article = generate_fake_article_from_query(search_query, api_key)
+
+                    # 生成された仮想論文を表示
+                    with st.expander("📝 生成された仮想論文（デバッグ用）", expanded=False):
+                        st.write(f"**タイトル:** {fake_article['title']}")
+                        st.write(f"**アブストラクト:** {fake_article['abstract']}")
+
+                    # 2. ベクトル化
+                    st.info("⏳ ステップ2/3: ベクトル化中...")
+                    import google.generativeai as genai
+                    genai.configure(api_key=api_key)
+
+                    # タイトルとアブストラクトを結合してベクトル化
+                    combined_text = f"{fake_article['title']} {fake_article['abstract']}"
+                    result = genai.embed_content(
+                        model="models/embedding-001",
+                        content=[combined_text],
+                        task_type="CLUSTERING"
+                    )
+
+                    query_embedding = result.get("embedding")
+
+                    # 単一のベクトルかリストかを判定
+                    if isinstance(query_embedding, list) and len(query_embedding) > 0:
+                        if isinstance(query_embedding[0], list):
+                            query_embedding = query_embedding[0]
+
+                    # 3. 類似度計算
+                    st.info("⏳ ステップ3/3: 類似度を計算中...")
+
+                    # embeddingを持つ論文のみを対象
+                    articles_with_similarity = []
+                    for article in filtered_articles:
+                        if article.get("embedding") and len(article.get("embedding", [])) > 0:
+                            similarity = calculate_cosine_similarity(
+                                query_embedding,
+                                article["embedding"]
+                            )
+                            articles_with_similarity.append({
+                                **article,
+                                "vector_similarity": similarity
+                            })
+
+                    # 類似度でソート
+                    articles_with_similarity.sort(
+                        key=lambda x: x.get("vector_similarity", 0),
+                        reverse=True
+                    )
+
+                    # 上位N件を取得
+                    top_articles = articles_with_similarity[:top_n]
+
+                    # 検索結果をsession_stateに保存
+                    st.session_state.vector_search_results = top_articles
+                    st.session_state.saved_vector_search_query = search_query
+
+                    st.success(f"✅ 検索完了！ 類似度の高い上位{len(top_articles)}件を表示します")
+
+                except Exception as e:
+                    st.error(f"検索中にエラーが発生しました: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+        # 検索結果を表示（session_stateから取得）
+        if 'vector_search_results' in st.session_state and st.session_state.vector_search_results:
+            top_articles = st.session_state.vector_search_results
+
+            # 結果を表示
+            st.divider()
+            st.subheader(f"📊 検索結果（上位{len(top_articles)}件）")
+            if 'saved_vector_search_query' in st.session_state:
+                st.info(f"🔍 検索クエリ: {st.session_state.saved_vector_search_query}")
+
+            for idx, article in enumerate(top_articles, 1):
+                similarity_score = article.get("vector_similarity", 0)
+                original_score = article.get("relevance_score", 0)
+
+                # 類似度を0-100のスケールに変換（コサイン類似度は0-1）
+                similarity_percent = similarity_score * 100
+
+                with st.expander(
+                    f"[{idx}] {article.get('title', 'No Title')} "
+                    f"(類似度: {similarity_percent:.1f}%)",
+                    expanded=(idx <= 5)
+                ):
+                    col1, col2 = st.columns([2, 1])
+
+                    with col1:
+                        pmid = article.get('pmid')
+                        doi = article.get('doi')
+                        article_id = article.get('article_id', f"pmid:{pmid}" if pmid else f"doi:{doi}" if doi else f"unknown_{idx}")
+
+                        # PMID表示
+                        if pmid:
+                            st.markdown(f"**PMID:** [{pmid}]({article.get('url', '#')})")
+                        elif doi:
+                            st.markdown(f"**識別子:** DOIのみ")
+
+                        # DOI情報とリンク
+                        if doi:
+                            doi_url, doi_label = build_doi_url(doi, doi_proxy_template)
+                            label_text = f" {doi_label}" if doi_label else ""
+                            st.markdown(f"**DOI:** [🔗 {doi}]({doi_url}){label_text}")
+
+                        # 図書館リンク
+                        library_url = build_library_link(pmid if pmid != 'N/A' else '', doi, library_link_template)
+                        if library_url:
+                            st.markdown(f"**📚 図書館:** [Article Linker]({library_url})")
+
+                        st.markdown(f"**著者:** {article.get('authors', 'N/A')}")
+                        st.markdown(f"**ジャーナル:** {article.get('journal', 'N/A')}")
+                        st.markdown(f"**出版年:** {article.get('pub_year', 'N/A')}")
+
+                    with col2:
+                        # 類似度スコアバッジ
+                        if similarity_percent >= 80:
+                            color = "green"
+                        elif similarity_percent >= 60:
+                            color = "blue"
+                        elif similarity_percent >= 40:
+                            color = "orange"
+                        else:
+                            color = "red"
+
+                        st.markdown(f"**類似度:** :{color}[{similarity_percent:.1f}%]")
+                        st.markdown(f"**元スコア:** {original_score}/100")
+
+                        # Altmetric Score
+                        altmetric_data = article.get('altmetric_data')
+                        if altmetric_data:
+                            altmetric_score = altmetric_data.get('score', 0)
+                            badge_url = altmetric_data.get('badge_url', '')
+                            details_url = altmetric_data.get('details_url', '')
+
+                            st.markdown(f"**Altmetric Score:** {altmetric_score}")
+
+                            if badge_url and details_url:
+                                st.markdown(
+                                    f'<a href="{details_url}" target="_blank">'
+                                    f'<img src="{badge_url}" alt="Altmetric Badge" style="max-width: 100px;"></a>',
+                                    unsafe_allow_html=True
+                                )
+
+                        # 被引用数
+                        citation_count = article.get('citation_count')
+                        if citation_count is not None:
+                            st.markdown(f"**被引用数:** {citation_count}件")
+
+                        # 被発見数
+                        mentioned_by = article.get('mentioned_by', [])
+                        if isinstance(mentioned_by, list) and len(mentioned_by) > 0:
+                            st.markdown(f"**被発見数:** {len(mentioned_by)}件")
+
+                    # アブストラクト
+                    if article.get('abstract'):
+                        with st.container():
+                            st.markdown("**アブストラクト:**")
+                            st.text(article['abstract'])
+
+                    # 日本語要約
+                    if article.get('abstract_summary_ja'):
+                        st.markdown("**📝 日本語要約:**")
+                        st.success(article['abstract_summary_ja'])
+
+                    # 評価理由
+                    if article.get('relevance_reasoning'):
+                        st.markdown("**AI評価理由:**")
+                        st.info(article['relevance_reasoning'])
+
+                    # 確認済みチェックボックス
+                    checked = st.checkbox(
+                        "✅ 確認済み",
+                        value=article.get('checked', False),
+                        key=f"vector_checked_{article_id}_{idx}",
+                        help="この論文を確認済みとしてマークします（自動保存されます）"
+                    )
+
+                    # チェック状態をsession_stateに記録（即座にファイル保存はしない）
+                    if f"vector_checked_{article_id}_{idx}" in st.session_state:
+                        if 'pending_checked_changes' not in st.session_state:
+                            st.session_state.pending_checked_changes = {}
+                        st.session_state.pending_checked_changes[article_id] = checked
+
+                    # コメント・メモ機能
+                    st.markdown("**📝 メモ・コメント:**")
+                    existing_comment = article.get('comment', '')
+
+                    # コメント入力エリア
+                    comment = st.text_area(
+                        label="メモを入力",
+                        value=existing_comment,
+                        key=f"vector_comment_{article_id}_{idx}",
+                        height=100,
+                        label_visibility="collapsed",
+                        placeholder="この論文に関するメモやコメントを入力してください..."
+                    )
+
+                    # コメント保存ボタン
+                    if st.button(
+                        "💾 メモを保存",
+                        key=f"vector_save_comment_{article_id}_{idx}",
+                        type="secondary",
+                        help="メモと確認済み状態をプロジェクトに保存します"
+                    ):
+                        # プロジェクトから元の論文データを取得
+                        if article_id in project.articles:
+                            original_article = project.articles[article_id]
+
+                            # メモを更新
+                            original_article['comment'] = comment
+
+                            # 保留中のチェック状態も一緒に保存
+                            if 'pending_checked_changes' in st.session_state and article_id in st.session_state.pending_checked_changes:
+                                original_article['checked'] = st.session_state.pending_checked_changes[article_id]
+
+                            project.articles[article_id] = original_article
+                            project.save()
+
+                            # 保存済みなので保留リストから削除
+                            if 'pending_checked_changes' in st.session_state and article_id in st.session_state.pending_checked_changes:
+                                del st.session_state.pending_checked_changes[article_id]
+
+                            st.success("メモと確認済み状態を保存しました")
+                        else:
+                            st.error("この論文はプロジェクトに見つかりませんでした")
+
+        st.divider()
 
     # 可視化（ネットワークグラフ & セマンティック・マップ）
     if filtered_articles:

@@ -110,6 +110,65 @@ class NotionAPI:
                 traceback.print_exc()
                 return None
 
+    def find_page_by_doi(self, doi: str) -> Optional[str]:
+        """
+        DOIでNotionデータベースを検索してページIDを取得
+
+        Args:
+            doi: DOI
+
+        Returns:
+            ページID（見つからない場合はNone）
+        """
+        # リトライ設定（タイムアウト対策）
+        max_retries = 3
+        retry_delays = [30, 60, 90]  # 30秒、60秒、90秒
+
+        for attempt in range(max_retries):
+            try:
+                # データベースを検索（タイムアウト60秒）
+                with httpx.Client(timeout=60.0) as client:
+                    response = client.post(
+                        f"{self.base_url}/databases/{self.database_id}/query",
+                        headers=self.headers,
+                        json={
+                            "filter": {
+                                "property": "DOI",
+                                "url": {
+                                    "contains": doi
+                                }
+                            }
+                        }
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+
+                    # 結果があればページIDを返す
+                    if result.get("results"):
+                        return result["results"][0]["id"]
+
+                return None
+
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                error_message = str(e)
+                print(f"Notion API timeout for DOI {doi} (attempt {attempt + 1}/{max_retries}): {error_message}")
+
+                # 最後のリトライでも失敗した場合
+                if attempt == max_retries - 1:
+                    print(f"  → {max_retries}回リトライ後もタイムアウトしました")
+                    return None
+
+                # タイムアウトの場合は待機してリトライ
+                wait_time = retry_delays[attempt]
+                print(f"  → {wait_time}秒待機してリトライします...")
+                time.sleep(wait_time)
+
+            except Exception as e:
+                print(f"Failed to search Notion database for DOI {doi}: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+
     def update_score(self, page_id: str, score: int) -> bool:
         """
         NotionページのScoreプロパティを更新
@@ -377,12 +436,21 @@ class NotionAPI:
 
         for article in articles:
             pmid = article.get("pmid")
-            if not pmid:
+            doi = article.get("doi")
+
+            # PMIDもDOIもない場合はスキップ
+            if not pmid and not doi:
                 results.append(article)
                 continue
 
-            # Notionで検索
-            page_id = self.find_page_by_pmid(pmid)
+            # Notionで検索（PMIDを優先、なければDOI）
+            page_id = None
+            if pmid:
+                page_id = self.find_page_by_pmid(pmid)
+
+            # PMIDで見つからない、またはPMIDがない場合はDOIで検索
+            if not page_id and doi:
+                page_id = self.find_page_by_doi(doi)
 
             # Notion情報を追加
             article_with_notion = article.copy()
@@ -424,7 +492,7 @@ class NotionAPI:
         Args:
             articles: 論文情報のリスト
             update_score: スコアを自動更新するか
-            callback: 進捗通知用のコールバック関数 callback(current, total, pmid)
+            callback: 進捗通知用のコールバック関数 callback(current, total, identifier)
             project_name: プロジェクト名（プロジェクトごとのスコア管理用）
             research_theme: 研究テーマ（プロジェクトごとのスコア管理用）
 
@@ -435,10 +503,11 @@ class NotionAPI:
         total = len(articles)
 
         for i, article in enumerate(articles, 1):
-            pmid = article.get("pmid", "")
+            # PMID優先、なければDOIを表示
+            identifier = article.get("pmid") or article.get("doi") or "N/A"
 
             if callback:
-                callback(i, total, pmid)
+                callback(i, total, identifier)
 
             # 個別にチェック
             article_with_notion = self.check_and_update_articles(
