@@ -291,11 +291,18 @@ https://doi-org.nagoya-u.idm.oclc.org/{doi}
 ### セットアップ
 
 ```bash
-# fastmcp をインストール
+# 1. fastmcp をインストール
 pip install "fastmcp>=2.0.0,<3.0.0"
+
+# 2. Claude Code にグローバル登録（どのディレクトリからでも使えるようになる）
+claude mcp add article-finder \
+  /path/to/AriticleFinder/venv/bin/python \
+  /path/to/AriticleFinder/mcp_server.py
 ```
 
-`.mcp.json` がプロジェクトルートに存在するため、このディレクトリで Claude Code を起動すると自動的に `article-finder` MCPサーバーが利用可能になります。
+登録後は任意のディレクトリで起動した Claude Code から `article-finder` が使用できます。登録は一度だけ行えばOKです（`~/.claude.json` にグローバル設定として保存されます）。
+
+> **確認方法**: Claude Code で `/mcp` を実行し、`article-finder` が7ツールで表示されればOKです。
 
 ### 利用可能なツール（7つ）
 
@@ -509,7 +516,6 @@ AriticleFinder/
 ├── run.bat                # Windows用起動スクリプト
 │
 ├── mcp_server.py          # Claude Code 用 MCPサーバー（7ツール）
-├── .mcp.json             # Claude Code 用 MCP設定ファイル
 │
 ├── requirements.txt       # 依存パッケージ
 ├── .env.example          # 環境変数サンプル
