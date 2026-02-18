@@ -33,6 +33,13 @@
   - 検索セッション、Notion登録状態、スコアで絞り込み
   - 評価日時を論文詳細に表示
 - **ソース追跡**: 各論文がどの論文のSimilar/Cited by/Referencesから発見されたかを記録
+- **テーマ再検索**: 既存プロジェクトの論文を新しい研究テーマで再評価
+  - ユーザーの入力から仮想論文を生成（Gemini API）
+  - 保存済みのembeddingベクトルとコサイン類似度で関連性を計算
+  - スコア再計算不要、高速に関連論文を抽出（類似度順にソート）
+  - 表示件数を10〜200件で選択可能
+  - 現在のフィルタ設定が適用される（プロジェクト全体を対象にする場合はフィルタをリセット）
+  - 元の関連性スコアと新しい類似度スコアを並べて表示
 
 ### 🎨 UI・UX
 - **WebベースGUI**: Streamlitによる使いやすいインターフェース
@@ -63,6 +70,13 @@
   - **注意**: Embedding APIの使用には有料tierのAPIキーが必要（無料枠内で計算可能な場合がほとんど）
 - **API Key管理**: 無効なAPI Keyを検出し、GUIから.envに保存可能
 - **JSON出力**: 収集した論文データをJSON形式でエクスポート
+
+### 🤖 Claude Code 連携（MCP）
+
+- **MCPサーバー**: Claude Code（CLI）から直接論文検索を実行可能
+- **バックグラウンド実行**: 検索は非同期で実行され、job_id を即返却
+- **リアルタイムログ**: `tail -f` で別ターミナルから進捗をリアルタイム確認
+- **7つのツール**: 検索開始・進捗確認・停止・論文取得・1論文評価・エクスポートなど
 
 ### 🔗 外部連携
 - **Notion連携**: Notionデータベースとの連携
@@ -270,6 +284,79 @@ https://doi-org.nagoya-u.idm.oclc.org/{doi}
 - 設定は `user_settings.json` に保存され、次回起動時も維持されます
 - 空欄の場合は通常のDOIリンクが表示されます
 
+## 🤖 Claude Code から使う（MCP連携）
+
+ブラウザを開かず、Claude Code（CLI）の会話の中で直接論文検索を実行できます。
+
+### セットアップ
+
+```bash
+# fastmcp をインストール
+pip install "fastmcp>=2.0.0,<3.0.0"
+```
+
+`.mcp.json` がプロジェクトルートに存在するため、このディレクトリで Claude Code を起動すると自動的に `article-finder` MCPサーバーが利用可能になります。
+
+### 利用可能なツール（7つ）
+
+| ツール | 説明 |
+|--------|------|
+| `list_projects` | プロジェクト一覧を表示 |
+| `get_project_articles` | プロジェクト内の論文を取得（フィルタ付き） |
+| `start_search` | 論文検索を開始（job_id を即返却） |
+| `get_search_status` | 検索進捗を確認 |
+| `stop_search` | 実行中の検索を安全に停止 |
+| `evaluate_article` | 1件の論文を評価（プロジェクト保存なし） |
+| `export_project` | プロジェクトをJSONファイルにエクスポート |
+
+### 使い方の流れ
+
+```
+1. Claude Code に「PMID ○○を起点に△△に関する論文を探して」と依頼
+   → start_search() が実行され job_id が返される
+
+2. 別ターミナルで進捗をリアルタイム確認（任意）
+   tail -f /path/to/AriticleFinder/logs/<job_id>.log
+
+3. 検索完了後、「結果を教えて」と聞くと
+   → get_project_articles() で論文一覧が返される
+```
+
+### `start_search` のデフォルト設定
+
+| パラメータ | デフォルト値 |
+|-----------|------------|
+| `max_depth` | 2 |
+| `max_articles` | 100 |
+| `relevance_threshold` | 80 |
+| `include_similar` | True（最大20件/論文） |
+| `include_cited_by` | True（最大20件/論文） |
+| `include_references` | False |
+| `pubmed_only` | False |
+
+デフォルト値は `mcp_server.py` の `start_search` 関数の引数で変更できます。
+
+### ログファイル
+
+検索ごとに `logs/<job_id>.log` が生成され、終了後も保持されます。
+
+```
+# ArticleFinder Search Log
+# job_id: a3f8c2d1-...
+# project: diabetes_study
+# started: 2026-02-18 10:23:00
+############################################################
+[10:23:01] 既存プロジェクト 'diabetes_study' を読み込みました
+[10:23:04] ✅ 起点論文評価完了・保存済み (スコア: 85)
+[10:23:05] 探索階層 1/2 を開始 (対象論文数: 1)
+...
+############################################################
+# 検索完了: 2026-02-18 10:45:12
+# 評価: 87件 / 関連あり: 23件 / キャッシュ: 5件
+```
+
+---
+
 ## 📖 使い方
 
 ### アプリケーションの起動
@@ -421,6 +508,9 @@ AriticleFinder/
 ├── run.command            # Mac用起動スクリプト
 ├── run.bat                # Windows用起動スクリプト
 │
+├── mcp_server.py          # Claude Code 用 MCPサーバー（7ツール）
+├── .mcp.json             # Claude Code 用 MCP設定ファイル
+│
 ├── requirements.txt       # 依存パッケージ
 ├── .env.example          # 環境変数サンプル
 ├── .gitignore            # Git除外設定
@@ -429,6 +519,9 @@ AriticleFinder/
 │
 ├── example_output.json           # JSON出力サンプル
 ├── example_project_export.json  # プロジェクトエクスポートサンプル
+│
+├── logs/                 # MCPサーバーの検索ログ（自動生成）
+│   └── <job_id>.log        # 検索ジョブごとのログファイル
 │
 └── projects/             # プロジェクトデータ保存先（自動生成）
     └── project_name/
@@ -620,6 +713,15 @@ Failed to fetch article
 → PMIDが存在するか、PubMed APIが正常に動作しているか確認してください
 
 ## 📝 更新履歴
+
+### 2026-02-18
+- **MCP サーバーを追加** (`mcp_server.py`, `.mcp.json`):
+  - Claude Code（CLI）から直接論文検索が可能に
+  - バックグラウンドスレッドで長時間検索に対応（job_id で管理）
+  - 検索進捗を `logs/<job_id>.log` にリアルタイム書き出し（`tail -f` で確認可能）
+  - 7ツール: `list_projects`, `get_project_articles`, `start_search`, `get_search_status`, `stop_search`, `evaluate_article`, `export_project`
+  - `start_search` のデフォルト閾値を 80 に設定
+  - `max_similar`, `max_cited_by`, `pubmed_only` パラメータを公開
 
 ### 2025-12-26（v1.0 完成版）
 - **UIの最終調整**:
