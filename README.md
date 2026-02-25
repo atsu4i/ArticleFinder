@@ -329,7 +329,7 @@ claude mcp add article-finder \
    → get_project_articles() で論文一覧が返される
 ```
 
-### `start_search` のデフォルト設定
+### `start_search` のデフォルト設定（mode未指定時）
 
 | パラメータ | デフォルト値 |
 |-----------|------------|
@@ -341,7 +341,24 @@ claude mcp add article-finder \
 | `include_references` | False |
 | `pubmed_only` | False |
 
-デフォルト値は `mcp_server.py` の `start_search` 関数の引数で変更できます。
+デフォルト値は `mcp_server.py` の `start_search` 関数の引数で変更できます。`mode` を指定した場合は、下記のモードプリセットがデフォルトの代わりに使用されます（ただし、同時に渡した個別パラメータがあればそちらが優先）。
+
+### `start_search` のモード指定
+
+`start_search` には `mode` を指定できます。指定時はモードのプリセット値が使われます（ただし、同時に渡した個別パラメータがあればそちらが優先）。
+
+利用可能なモード:
+- `高速` / `fast`
+- `標準` / `standard`
+- `深掘り` / `deep`
+
+モード別プリセット値:
+
+| モード | max_depth | max_articles | relevance_threshold | include_similar | max_similar | include_cited_by | max_cited_by | include_references | max_references |
+|-------|-----------|--------------|---------------------|----------------|------------|------------------|--------------|-------------------|----------------|
+| 高速 / fast | 1 | 200 | 80 | True | 20 | True | 20 | True | 20 |
+| 標準 / standard | 3 | 500 | 80 | True | 50 | True | 50 | True | 50 |
+| 深掘り / deep | 4 | 1000 | 80 | True | 100 | True | 100 | True | 100 |
 
 ### ログファイル
 

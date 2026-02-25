@@ -35,6 +35,57 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 
 mcp = FastMCP(name="ArticleFinder")
 
+SEARCH_MODE_PRESETS = {
+    "fast": {
+        "max_depth": 1,
+        "max_articles": 200,
+        "relevance_threshold": 80,
+        "include_similar": True,
+        "max_similar": 20,
+        "include_cited_by": True,
+        "max_cited_by": 20,
+        "include_references": True,
+        "pubmed_only": False
+    },
+    "standard": {
+        "max_depth": 3,
+        "max_articles": 500,
+        "relevance_threshold": 80,
+        "include_similar": True,
+        "max_similar": 50,
+        "include_cited_by": True,
+        "max_cited_by": 50,
+        "include_references": True,
+        "pubmed_only": False
+    },
+    "deep": {
+        "max_depth": 4,
+        "max_articles": 1000,
+        "relevance_threshold": 80,
+        "include_similar": True,
+        "max_similar": 100,
+        "include_cited_by": True,
+        "max_cited_by": 100,
+        "include_references": True,
+        "pubmed_only": False
+    }
+}
+
+
+def normalize_search_mode(mode: Optional[str]) -> Optional[str]:
+    if not mode:
+        return None
+    mode = str(mode).strip().lower()
+    if mode in ("高速", "fast"):
+        return "fast"
+    if mode in ("標準", "standard", "std", "default"):
+        return "standard"
+    if mode in ("深掘り", "deep", "intensive"):
+        return "deep"
+    if mode in ("カスタム", "custom"):
+        return None
+    return None
+
 
 def _run_search(job_id: str, params: dict):
     """バックグラウンドスレッドで find_articles() を実行"""
@@ -75,19 +126,22 @@ def _run_search(job_id: str, params: dict):
 
         finder = ArticleFinder(gemini_model=params.get("gemini_model"))
 
+        mode_key = normalize_search_mode(params.get("mode"))
+        mode_preset = SEARCH_MODE_PRESETS.get(mode_key, {}) if mode_key else {}
+
         result = finder.find_articles(
             start_pmid_or_url=params["start_pmid_or_url"],
             research_theme=params["research_theme"],
-            max_depth=params.get("max_depth", 2),
-            max_articles=params.get("max_articles", 100),
-            relevance_threshold=params.get("relevance_threshold", 80),
+            max_depth=params.get("max_depth", mode_preset.get("max_depth", 2)),
+            max_articles=params.get("max_articles", mode_preset.get("max_articles", 100)),
+            relevance_threshold=params.get("relevance_threshold", mode_preset.get("relevance_threshold", 80)),
             year_from=params.get("year_from"),
-            include_similar=params.get("include_similar", True),
-            max_similar=params.get("max_similar", 20),
-            include_cited_by=params.get("include_cited_by", True),
-            max_cited_by=params.get("max_cited_by", 20),
-            include_references=params.get("include_references", False),
-            pubmed_only=params.get("pubmed_only", False),
+            include_similar=params.get("include_similar", mode_preset.get("include_similar", True)),
+            max_similar=params.get("max_similar", mode_preset.get("max_similar", 20)),
+            include_cited_by=params.get("include_cited_by", mode_preset.get("include_cited_by", True)),
+            max_cited_by=params.get("max_cited_by", mode_preset.get("max_cited_by", 20)),
+            include_references=params.get("include_references", mode_preset.get("include_references", False)),
+            pubmed_only=params.get("pubmed_only", mode_preset.get("pubmed_only", False)),
             progress_callback=on_progress,
             project=project,
             should_stop_callback=should_stop

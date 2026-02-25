@@ -18,6 +18,68 @@ from st_link_analysis import st_link_analysis, NodeStyle, EdgeStyle, Event
 import streamlit.components.v1 as components
 import plotly.express as px
 
+SEARCH_MODE_PRESETS = {
+    "高速": {
+        "config_max_depth_slider": 1,
+        "config_max_depth_input": 1,
+        "config_max_articles_slider": 200,
+        "config_max_articles_input": 200,
+        "config_threshold_slider": 80,
+        "config_threshold_input": 80,
+        "include_similar": True,
+        "max_similar": 20,
+        "include_cited_by": True,
+        "max_cited_by": 20,
+        "include_references": True,
+        "max_references": 20,
+        "use_year_filter": False,
+        "year_from_input": 2020,
+        "pubmed_only": False
+    },
+    "標準": {
+        "config_max_depth_slider": 3,
+        "config_max_depth_input": 3,
+        "config_max_articles_slider": 500,
+        "config_max_articles_input": 500,
+        "config_threshold_slider": 80,
+        "config_threshold_input": 80,
+        "include_similar": True,
+        "max_similar": 50,
+        "include_cited_by": True,
+        "max_cited_by": 50,
+        "include_references": True,
+        "max_references": 50,
+        "use_year_filter": False,
+        "year_from_input": 2020,
+        "pubmed_only": False
+    },
+    "深掘り": {
+        "config_max_depth_slider": 4,
+        "config_max_depth_input": 4,
+        "config_max_articles_slider": 1000,
+        "config_max_articles_input": 1000,
+        "config_threshold_slider": 80,
+        "config_threshold_input": 80,
+        "include_similar": True,
+        "max_similar": 100,
+        "include_cited_by": True,
+        "max_cited_by": 100,
+        "include_references": True,
+        "max_references": 100,
+        "use_year_filter": False,
+        "year_from_input": 2018,
+        "pubmed_only": False
+    }
+}
+
+
+def apply_search_mode(mode_name: str) -> None:
+    preset = SEARCH_MODE_PRESETS.get(mode_name)
+    if not preset:
+        return
+    for key, value in preset.items():
+        st.session_state[key] = value
+
 
 def save_api_key_to_env(api_key: str) -> bool:
     """
@@ -909,6 +971,17 @@ def main():
         # 探索設定
         st.subheader("探索設定")
 
+        if 'config_search_mode' not in st.session_state:
+            st.session_state.config_search_mode = "標準"
+
+        st.selectbox(
+            "探索モード",
+            options=["標準", "高速", "深掘り", "カスタム"],
+            key="config_search_mode",
+            help="モードを選ぶと探索パラメータが一括で設定されます",
+            on_change=lambda: apply_search_mode(st.session_state.config_search_mode)
+        )
+
         # セッション状態の初期化
         if 'config_max_depth_slider' not in st.session_state:
             st.session_state.config_max_depth_slider = 3
@@ -1058,7 +1131,7 @@ def main():
         # フィルタ設定
         st.subheader("フィルタ設定")
 
-        use_year_filter = st.checkbox("年代フィルタを使用", value=False)
+        use_year_filter = st.checkbox("年代フィルタを使用", value=False, key="use_year_filter")
         year_from = None
         if use_year_filter:
             year_from = st.number_input(
@@ -1066,12 +1139,14 @@ def main():
                 min_value=1900,
                 max_value=datetime.now().year,
                 value=2020,
-                step=1
+                step=1,
+                key="year_from_input"
             )
 
         pubmed_only = st.checkbox(
             "PubMed収録論文のみを対象",
             value=False,
+            key="pubmed_only",
             help="有効にすると、PMIDがない論文（DOIのみの論文）を除外します"
         )
 

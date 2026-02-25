@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "article-finder": {
-      "type": "stdio",
-      "command": "/Users/atsu4i/MyProjects/AriticleFinder/venv/bin/python",
-      "args": ["/Users/atsu4i/MyProjects/AriticleFinder/mcp_server.py"]
-    }
-  }
-}
