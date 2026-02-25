@@ -20,8 +20,8 @@ import plotly.express as px
 
 SEARCH_MODE_PRESETS = {
     "高速": {
-        "config_max_depth_slider": 1,
-        "config_max_depth_input": 1,
+        "config_max_depth_slider": 3,
+        "config_max_depth_input": 3,
         "config_max_articles_slider": 200,
         "config_max_articles_input": 200,
         "config_threshold_slider": 80,
@@ -54,8 +54,8 @@ SEARCH_MODE_PRESETS = {
         "pubmed_only": False
     },
     "深掘り": {
-        "config_max_depth_slider": 4,
-        "config_max_depth_input": 4,
+        "config_max_depth_slider": 5,
+        "config_max_depth_input": 5,
         "config_max_articles_slider": 1000,
         "config_max_articles_input": 1000,
         "config_threshold_slider": 80,

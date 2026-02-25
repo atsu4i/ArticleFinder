@@ -356,9 +356,9 @@ claude mcp add article-finder \
 
 | モード | max_depth | max_articles | relevance_threshold | include_similar | max_similar | include_cited_by | max_cited_by | include_references | max_references |
 |-------|-----------|--------------|---------------------|----------------|------------|------------------|--------------|-------------------|----------------|
-| 高速 / fast | 1 | 200 | 80 | True | 20 | True | 20 | True | 20 |
+| 高速 / fast | 3 | 200 | 80 | True | 20 | True | 20 | True | 20 |
 | 標準 / standard | 3 | 500 | 80 | True | 50 | True | 50 | True | 50 |
-| 深掘り / deep | 4 | 1000 | 80 | True | 100 | True | 100 | True | 100 |
+| 深掘り / deep | 5 | 1000 | 80 | True | 100 | True | 100 | True | 100 |
 
 ### ログファイル
 

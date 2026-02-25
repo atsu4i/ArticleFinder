@@ -37,7 +37,7 @@ mcp = FastMCP(name="ArticleFinder")
 
 SEARCH_MODE_PRESETS = {
     "fast": {
-        "max_depth": 1,
+        "max_depth": 3,
         "max_articles": 200,
         "relevance_threshold": 80,
         "include_similar": True,
@@ -59,7 +59,7 @@ SEARCH_MODE_PRESETS = {
         "pubmed_only": False
     },
     "deep": {
-        "max_depth": 4,
+        "max_depth": 5,
         "max_articles": 1000,
         "relevance_threshold": 80,
         "include_similar": True,
@@ -284,6 +284,7 @@ def start_search(
     start_pmid_or_url: str,
     research_theme: str,
     project_name: str,
+    mode: Optional[str] = None,
     max_depth: int = 2,
     max_articles: int = 100,
     relevance_threshold: int = 80,
@@ -305,6 +306,7 @@ def start_search(
         start_pmid_or_url: 起点論文のPMID、PubMed URL、またはDOI
         research_theme: 研究テーマの詳細説明（例: "2型糖尿病患者におけるSGLT2阻害薬の心血管アウトカムに関する論文"）
         project_name: 保存先プロジェクト名（存在しない場合は自動作成）
+        mode: 探索モード（高速/標準/深掘り もしくは fast/standard/deep）
         max_depth: 探索深さ（1〜3、デフォルト2）
         max_articles: 最大評価論文数（デフォルト100）
         relevance_threshold: 関連性スコアの閾値（0-100、デフォルト80）
@@ -342,6 +344,7 @@ def start_search(
         "start_pmid_or_url": start_pmid_or_url,
         "research_theme": research_theme,
         "project_name": project_name,
+        "mode": mode,
         "max_depth": max_depth,
         "max_articles": max_articles,
         "relevance_threshold": relevance_threshold,
