@@ -588,6 +588,14 @@ class ArticleFinder:
 
             print(f"  [DEBUG] 合計 {len(related_pmids_with_source)} 件の関連論文を取得")
 
+            # 探索元論文に explored フラグを設定
+            if project:
+                explored_article = project.get_article_by_id(parent_article_id)
+                if explored_article and not explored_article.get("explored"):
+                    explored_article["explored"] = True
+                    project.add_article(explored_article)
+                    project.save()
+
             # 重複削除（同じIDでもソースが異なる場合、最初のもののみ保持）
             seen_ids = set()
             unique_related = []

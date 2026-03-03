@@ -1075,17 +1075,24 @@ def main():
         # 関連論文取得設定
         st.subheader("関連論文取得設定")
 
+        # セッションステートのデフォルト値を設定（プリセット未適用時のみ）
+        st.session_state.setdefault("include_similar", True)
+        st.session_state.setdefault("max_similar", 50)
+        st.session_state.setdefault("include_cited_by", True)
+        st.session_state.setdefault("max_cited_by", 50)
+        st.session_state.setdefault("include_references", True)
+        st.session_state.setdefault("max_references", 50)
+
         # Similar articles設定
         st.markdown("**Similar articles（類似論文）**")
         col1, col2 = st.columns([3, 2])
         with col1:
-            include_similar = st.checkbox("Similar articlesを探索", value=True, key="include_similar")
+            include_similar = st.checkbox("Similar articlesを探索", key="include_similar")
         with col2:
             max_similar = st.number_input(
                 "最大数",
                 min_value=5,
                 max_value=100,
-                value=50,
                 step=5,
                 disabled=not st.session_state.get("include_similar", True),
                 key="max_similar",
@@ -1096,13 +1103,12 @@ def main():
         st.markdown("**Cited by（この論文を引用している論文）**")
         col1, col2 = st.columns([3, 2])
         with col1:
-            include_cited_by = st.checkbox("Cited byを探索", value=True, key="include_cited_by")
+            include_cited_by = st.checkbox("Cited byを探索", key="include_cited_by")
         with col2:
             max_cited_by = st.number_input(
                 "最大数",
                 min_value=5,
                 max_value=100,
-                value=50,
                 step=5,
                 disabled=not st.session_state.get("include_cited_by", True),
                 key="max_cited_by",
@@ -1113,13 +1119,12 @@ def main():
         st.markdown("**References（この論文が引用している文献）**")
         col1, col2 = st.columns([3, 2])
         with col1:
-            include_references = st.checkbox("Referencesを探索", value=True, key="include_references")
+            include_references = st.checkbox("Referencesを探索", key="include_references")
         with col2:
             max_references = st.number_input(
                 "最大数",
                 min_value=5,
                 max_value=100,
-                value=50,
                 step=5,
                 disabled=not st.session_state.get("include_references", False),
                 key="max_references",
@@ -1131,21 +1136,23 @@ def main():
         # フィルタ設定
         st.subheader("フィルタ設定")
 
-        use_year_filter = st.checkbox("年代フィルタを使用", value=False, key="use_year_filter")
+        st.session_state.setdefault("use_year_filter", False)
+        st.session_state.setdefault("year_from_input", 2020)
+        st.session_state.setdefault("pubmed_only", False)
+
+        use_year_filter = st.checkbox("年代フィルタを使用", key="use_year_filter")
         year_from = None
         if use_year_filter:
             year_from = st.number_input(
                 "この年以降の論文のみ",
                 min_value=1900,
                 max_value=datetime.now().year,
-                value=2020,
                 step=1,
                 key="year_from_input"
             )
 
         pubmed_only = st.checkbox(
             "PubMed収録論文のみを対象",
-            value=False,
             key="pubmed_only",
             help="有効にすると、PMIDがない論文（DOIのみの論文）を除外します"
         )
@@ -2757,6 +2764,11 @@ def display_project_articles(
                 if citation_count is not None:
                     st.markdown(f"**被引用数:** {citation_count}件（OpenAlex）")
 
+                # 探索済みステータスを表示
+                is_explored = article.get('explored', False)
+                if is_explored:
+                    st.markdown("**探索状況:** 探索済み")
+
                 # グラフで探すボタン
                 search_id_for_graph = str(pmid) if pmid else doi if doi else None
                 if search_id_for_graph:
@@ -2864,10 +2876,16 @@ def display_project_articles(
                 # PMIDまたはDOIがあれば検索可能
                 can_search = pmid is not None or doi is not None
                 start_identifier = pmid if pmid else doi
-                button_help = "この論文を起点として関連論文を探索します" if can_search else "PMIDまたはDOIが必要です"
+
+                if is_explored:
+                    button_label = "🔍 この論文を起点に再検索"
+                    button_help = "この論文からは既に探索済みです。再検索すると新たに見つかった論文のみ追加されます" if can_search else "PMIDまたはDOIが必要です"
+                else:
+                    button_label = "🔍 この論文を起点に検索"
+                    button_help = "この論文を起点として関連論文を探索します" if can_search else "PMIDまたはDOIが必要です"
 
                 if st.button(
-                    "🔍 この論文を起点に検索",
+                    button_label,
                     key=f"search_from_{article_id}_{i}",
                     type="primary",
                     use_container_width=True,
@@ -3641,6 +3659,11 @@ def display_results(result: dict, project=None, doi_proxy_template: str = '', li
                 citation_count = article.get('citation_count')
                 if citation_count is not None:
                     st.markdown(f"**被引用数:** {citation_count}件（OpenAlex）")
+
+                # 探索済みステータスを表示
+                is_explored = article.get('explored', False)
+                if is_explored:
+                    st.markdown("**探索状況:** 探索済み")
 
                 # グラフで探すボタン
                 search_id_for_graph = str(pmid) if pmid else doi if doi else None
