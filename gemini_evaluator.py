@@ -7,6 +7,7 @@ import re
 import time
 from typing import Dict, Optional
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 # 環境変数を読み込み
@@ -287,7 +288,15 @@ Return only the Japanese summary."""
 
     def _generate_content(self, prompt: str):
         """現在のモデルでテキスト生成を実行する。"""
+        config = None
+        if self.model_name.startswith("gemma-4-"):
+            # この用途では深い推論は不要。Gemma 4 の思考を最小化して応答を速くする。
+            config = types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_level="MINIMAL")
+            )
+
         return self.client.models.generate_content(
             model=self.model_name,
-            contents=prompt
+            contents=prompt,
+            config=config
         )
