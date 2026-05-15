@@ -70,7 +70,7 @@ echo.
 
 REM .envファイルを作成（存在しない場合）
 if not exist ".env" (
-    echo ✓ 環境設定ファイル(.env)を作成中...
+    echo ✓ 環境設定ファイル .env を作成中...
     copy .env.example .env > nul
     echo   .envファイルを作成しました
     echo.
