@@ -407,7 +407,8 @@ streamlit run main.py --server.port 8502
 ##### API設定
 - **Gemini API Key**: API Keyを入力（無効なキーは自動検出）
 - **Geminiモデル**: 使用するGeminiモデルを選択（すべて無料枠あり）
-  - `gemma-3-27b-it`（デフォルト）: API制限が緩やか、推奨
+  - `gemma-4-26b-a4b-it`（デフォルト）: Gemma 4 の安定寄りモデル
+  - `gemma-4-31b-it`: より大きい Gemma 4 モデル
   - `gemini-2.5-flash-preview-09-2025`: 最新プレビュー版
   - `gemini-2.5-flash`: 最新の安定版高速モデル
   - `gemini-2.5-flash-lite`: 最も高速で低コスト
@@ -585,8 +586,9 @@ AriticleFinder/
 
 ### Gemini API
 
-- **デフォルトモデル**: gemma-3-27b-it（API制限が緩やか）
-- **利用可能モデル**: gemma-3-27b-it, gemini-2.5-flash系, gemini-2.0-flash系など
+- **デフォルトモデル**: gemma-4-26b-a4b-it
+- **利用可能モデル**: gemma-4-26b-a4b-it, gemma-4-31b-it, gemini-2.5-flash系, gemini-2.0-flash系など
+- **SDK**: `google-genai`
 - **評価基準**: ユーザーが探している論文との合致度を0-100でスコアリング
 - **評価理由**: スコアの根拠を自然言語で説明
 - **キャッシュ**: 一度評価した論文は保存され、再評価を回避してコスト削減

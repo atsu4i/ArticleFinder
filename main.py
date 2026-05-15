@@ -265,10 +265,9 @@ def generate_fake_article_from_query(query: str, api_key: str) -> Dict[str, str]
     Returns:
         {"title": str, "abstract": str}
     """
-    import google.generativeai as genai
+    from google import genai
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    client = genai.Client(api_key=api_key)
 
     prompt = f"""あなたは科学論文のタイトルとアブストラクトを生成する専門家です。
 
@@ -287,7 +286,10 @@ ABSTRACT: [論文アブストラクト（200-300語程度）]
 - 英語で生成してください"""
 
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
         text = response.text
 
         # TITLE: と ABSTRACT: を抽出
@@ -1914,23 +1916,19 @@ def display_project_articles(
 
                     # 2. ベクトル化
                     st.info("⏳ ステップ2/3: ベクトル化中...")
-                    import google.generativeai as genai
-                    genai.configure(api_key=api_key)
+                    from google import genai
+                    from google.genai import types
+                    client = genai.Client(api_key=api_key)
 
                     # タイトルとアブストラクトを結合してベクトル化
                     combined_text = f"{fake_article['title']} {fake_article['abstract']}"
-                    result = genai.embed_content(
-                        model="models/embedding-001",
-                        content=[combined_text],
-                        task_type="CLUSTERING"
+                    result = client.models.embed_content(
+                        model="gemini-embedding-001",
+                        contents=[combined_text],
+                        config=types.EmbedContentConfig(task_type="CLUSTERING")
                     )
 
-                    query_embedding = result.get("embedding")
-
-                    # 単一のベクトルかリストかを判定
-                    if isinstance(query_embedding, list) and len(query_embedding) > 0:
-                        if isinstance(query_embedding[0], list):
-                            query_embedding = query_embedding[0]
+                    query_embedding = result.embeddings[0].values if result.embeddings else []
 
                     # 3. 類似度計算
                     st.info("⏳ ステップ3/3: 類似度を計算中...")

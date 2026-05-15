@@ -6,13 +6,14 @@ Gemini Embeddings API を使用
 import os
 import time
 from typing import List, Dict, Optional, Callable
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 
 class EmbeddingManager:
     """論文のアブストラクトをベクトル化するクラス"""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "models/embedding-001"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-embedding-001"):
         """
         Args:
             api_key: Gemini API Key（省略時は環境変数GEMINI_API_KEYから取得）
@@ -22,7 +23,7 @@ class EmbeddingManager:
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY が設定されていません")
 
-        genai.configure(api_key=self.api_key)
+        self.client = genai.Client(api_key=self.api_key)
         self.model = model
 
     def embed_articles_batch(
@@ -90,25 +91,17 @@ class EmbeddingManager:
 
             # Gemini Embeddings API 呼び出し
             try:
-                result = genai.embed_content(
+                result = self.client.models.embed_content(
                     model=self.model,
-                    content=texts,
-                    task_type="CLUSTERING"
+                    contents=texts,
+                    config=types.EmbedContentConfig(task_type="CLUSTERING")
                 )
 
                 # 結果を各論文に保存
-                embeddings = result.get("embedding", [])
-
-                # embeddings が単一ベクトルの場合（1件のみ）と、複数ベクトルの場合で処理を分岐
-                if len(batch) == 1:
-                    # 1件のみの場合、embedding は単一のリスト
-                    if isinstance(embeddings, list) and len(embeddings) > 0:
-                        batch[0]["embedding"] = embeddings
-                else:
-                    # 複数件の場合、embedding はリストのリスト
-                    for i, article in enumerate(batch):
-                        if i < len(embeddings):
-                            article["embedding"] = embeddings[i]
+                embeddings = [embedding.values for embedding in result.embeddings]
+                for i, article in enumerate(batch):
+                    if i < len(embeddings):
+                        article["embedding"] = embeddings[i]
 
             except Exception as e:
                 print(f"[ERROR] Batch {batch_idx + 1} のベクトル化に失敗: {e}")

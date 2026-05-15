@@ -6,7 +6,7 @@ import os
 import re
 import time
 from typing import Dict, Optional
-import google.generativeai as genai
+from google import genai
 from dotenv import load_dotenv
 
 # 環境変数を読み込み
@@ -19,7 +19,8 @@ class GeminiEvaluator:
     # 利用可能なGeminiモデル（無料枠あり）
     # https://ai.google.dev/gemini-api/docs/pricing?hl=ja
     AVAILABLE_MODELS = [
-        "gemma-3-27b-it",
+        "gemma-4-26b-a4b-it",
+        "gemma-4-31b-it",
         "gemini-2.5-flash-preview-09-2025",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
@@ -28,7 +29,7 @@ class GeminiEvaluator:
         "gemini-2.0-flash-lite",
     ]
 
-    DEFAULT_MODEL = "gemma-3-27b-it"
+    DEFAULT_MODEL = "gemma-4-26b-a4b-it"
 
     def __init__(
         self,
@@ -51,9 +52,8 @@ class GeminiEvaluator:
         # モデル名の設定
         self.model_name = model_name or self.DEFAULT_MODEL
 
-        # Gemini APIを設定
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel(self.model_name)
+        # Google GenAI SDK のクライアントを生成
+        self.client = genai.Client(api_key=self.api_key)
 
     def evaluate_relevance(
         self,
@@ -103,7 +103,7 @@ class GeminiEvaluator:
 
         for attempt in range(max_retries):
             try:
-                response = self.model.generate_content(prompt)
+                response = self._generate_content(prompt)
                 score, reasoning = self._parse_response(response.text)
 
                 return {
@@ -150,32 +150,28 @@ class GeminiEvaluator:
         abstract: str
     ) -> str:
         """評価用プロンプトを作成"""
-        prompt = f"""あなたは医学研究の専門家です。以下の論文が、ユーザーが探している論文の内容とどの程度合致しているかを評価してください。
+        prompt = f"""You are a medical research expert. Evaluate how well the article matches the user's research topic.
 
-【ユーザーが探している論文】
+User research topic:
 {research_theme}
 
-【評価対象の論文】
-タイトル: {title}
+Article title:
+{title}
 
-アブストラクト:
+Abstract:
 {abstract}
 
-【評価基準】
-- ユーザーが探している内容との合致度を0-100のスコアで評価してください
-- 100: ユーザーが探している内容に完全に合致し、非常に重要な論文
-- 70-99: ユーザーが探している内容に強く合致し、参考になる論文
-- 40-69: ユーザーが探している内容に部分的に合致する論文
-- 1-39: ユーザーが探している内容との合致度が低い論文
-- 0: ユーザーが探している内容とは無関係な論文
+Scoring guide:
+- Score from 0 to 100
+- 100: complete match and highly important
+- 70-99: strong match and useful
+- 40-69: partial match
+- 1-39: weak match
+- 0: unrelated
 
-【出力形式】
-以下の形式で評価結果を出力してください：
-
+Return exactly this format, with the reason written in Japanese:
 スコア: [0-100の数値]
-理由: [評価の根拠を1-2文で簡潔に説明]
-
-評価を開始してください。"""
+理由: [評価の根拠を1-2文で簡潔に説明]"""
 
         return prompt
 
@@ -258,15 +254,16 @@ class GeminiEvaluator:
             return "アブストラクトが利用できません。"
 
         # プロンプトを作成
-        prompt = f"""以下の論文のアブストラクトを日本語で簡潔に要約してください。
-重要なポイント（目的、方法、結果、結論）を含めて、3-4文程度で要約してください。
+        prompt = f"""Summarize the following paper abstract in Japanese.
+Include the key points: objective, methods, results, and conclusion.
+Write about 3-4 concise Japanese sentences.
 
-タイトル: {title if title else "なし"}
+Title: {title if title else "なし"}
 
-アブストラクト:
+Abstract:
 {abstract}
 
-要約:"""
+Return only the Japanese summary."""
 
         # リトライ設定
         max_retries = 3
@@ -274,7 +271,7 @@ class GeminiEvaluator:
 
         for attempt in range(max_retries):
             try:
-                response = self.model.generate_content(prompt)
+                response = self._generate_content(prompt)
                 summary = response.text.strip()
                 return summary
             except Exception as e:
@@ -287,3 +284,10 @@ class GeminiEvaluator:
                     return f"要約生成エラー: {str(e)}"
 
         return "要約を生成できませんでした。"
+
+    def _generate_content(self, prompt: str):
+        """現在のモデルでテキスト生成を実行する。"""
+        return self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt
+        )
