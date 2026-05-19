@@ -40,6 +40,7 @@ SEARCH_MODE_PRESETS = {
         "max_depth": 3,
         "max_articles": 200,
         "relevance_threshold": 80,
+        "summary_threshold": 60,
         "include_similar": True,
         "max_similar": 20,
         "include_cited_by": True,
@@ -51,6 +52,7 @@ SEARCH_MODE_PRESETS = {
         "max_depth": 3,
         "max_articles": 500,
         "relevance_threshold": 80,
+        "summary_threshold": 60,
         "include_similar": True,
         "max_similar": 50,
         "include_cited_by": True,
@@ -62,6 +64,7 @@ SEARCH_MODE_PRESETS = {
         "max_depth": 5,
         "max_articles": 1000,
         "relevance_threshold": 80,
+        "summary_threshold": 60,
         "include_similar": True,
         "max_similar": 100,
         "include_cited_by": True,
@@ -135,6 +138,7 @@ def _run_search(job_id: str, params: dict):
             max_depth=params.get("max_depth", mode_preset.get("max_depth", 2)),
             max_articles=params.get("max_articles", mode_preset.get("max_articles", 100)),
             relevance_threshold=params.get("relevance_threshold", mode_preset.get("relevance_threshold", 80)),
+            summary_threshold=params.get("summary_threshold", mode_preset.get("summary_threshold", 60)),
             year_from=params.get("year_from"),
             include_similar=params.get("include_similar", mode_preset.get("include_similar", True)),
             max_similar=params.get("max_similar", mode_preset.get("max_similar", 20)),
@@ -288,6 +292,7 @@ def start_search(
     max_depth: int = 2,
     max_articles: int = 100,
     relevance_threshold: int = 80,
+    summary_threshold: int = 60,
     year_from: Optional[int] = None,
     include_similar: bool = True,
     max_similar: int = 20,
@@ -309,7 +314,8 @@ def start_search(
         mode: 探索モード（高速/標準/深掘り もしくは fast/standard/deep）
         max_depth: 探索深さ（1〜3、デフォルト2）
         max_articles: 最大評価論文数（デフォルト100）
-        relevance_threshold: 関連性スコアの閾値（0-100、デフォルト80）
+        relevance_threshold: 次階層へ進めるスコア閾値（0-100、デフォルト80）
+        summary_threshold: 日本語要約を生成するスコア閾値（0-100、デフォルト60、未満はスキップ）
         year_from: この年以降の論文のみ（Noneで制限なし）
         include_similar: Similar articlesを探索するか
         max_similar: Similar articlesの1論文あたりの最大取得数（デフォルト20）
@@ -348,6 +354,7 @@ def start_search(
         "max_depth": max_depth,
         "max_articles": max_articles,
         "relevance_threshold": relevance_threshold,
+        "summary_threshold": summary_threshold,
         "year_from": year_from,
         "include_similar": include_similar,
         "max_similar": max_similar,

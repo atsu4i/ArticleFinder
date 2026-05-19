@@ -3,13 +3,53 @@
 PubMed APIとGemini評価を組み合わせて関連論文を探索
 """
 
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from typing import Dict, List, Callable, Optional, Set
+from typing import Dict, List, Callable, Optional, Set, Any
 from pubmed_api import PubMedAPI
 from gemini_evaluator import GeminiEvaluator
 from project_manager import Project
 from openalex_api import OpenAlexAPI
-from altmetric_api import AltmetricAPI
+
+# 同一階層内の論文並列処理数（Gemini RPM 15 を超えないようレートリミッターと合わせて 2 並列に）
+PARALLEL_WORKERS = 2
+
+
+def _get_streamlit_ctx():
+    """Streamlit 実行中なら現在の ScriptRunContext を返す。それ以外は None。
+
+    Streamlit が無い環境（MCPサーバーなど）からの呼び出しでも警告ログを出さない。
+    """
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        # suppress_warning=True で MCP 等の非 Streamlit 環境でのノイズログを抑制
+        try:
+            return get_script_run_ctx(suppress_warning=True)
+        except TypeError:
+            # 古い Streamlit には suppress_warning が無いので引数なしで呼ぶ
+            return get_script_run_ctx()
+    except Exception:
+        return None
+
+
+def _make_worker_initializer(ctx):
+    """ThreadPoolExecutor 用の initializer。
+    Streamlit 実行時は各ワーカースレッドに ScriptRunContext を attach することで、
+    ワーカースレッドからの st.session_state アクセスや UI 更新を可能にする。
+    """
+    if not ctx:
+        return None
+
+    def _init():
+        try:
+            from streamlit.runtime.scriptrunner import add_script_run_ctx
+            add_script_run_ctx(threading.current_thread(), ctx)
+        except Exception:
+            # Streamlit が無い環境やバージョン不一致時は何もしない（フォールバック）
+            pass
+
+    return _init
 
 
 class ArticleFinder:
@@ -69,7 +109,6 @@ class ArticleFinder:
         self.pubmed = PubMedAPI()
         self.evaluator = GeminiEvaluator(gemini_api_key, gemini_model)
         self.openalex = OpenAlexAPI(openalex_email)
-        self.altmetric = AltmetricAPI()  # Altmetric APIを初期化
 
         # Notion APIを初期化（オプション）
         self.notion = None
@@ -91,7 +130,8 @@ class ArticleFinder:
         research_theme: str,
         max_depth: int = 2,
         max_articles: int = 500,
-        relevance_threshold: int = 60,
+        relevance_threshold: int = 80,
+        summary_threshold: int = 60,
         year_from: Optional[int] = None,
         include_similar: bool = True,
         max_similar: int = 20,
@@ -112,7 +152,8 @@ class ArticleFinder:
             research_theme: 研究テーマ（詳細な説明）
             max_depth: 探索の深さ（1以上）
             max_articles: 収集する最大論文数
-            relevance_threshold: 関連性スコアの閾値（0-100）
+            relevance_threshold: 次階層へ進めるスコア閾値（0-100、is_relevant 判定）
+            summary_threshold: 日本語要約を生成するスコア閾値（0-100、この値未満は要約をスキップ）
             year_from: この年以降の論文のみ（Noneの場合は制限なし）
             include_similar: Similar articlesを探索するか
             max_similar: Similar articlesの最大取得数（1論文あたり）
@@ -206,6 +247,24 @@ class ArticleFinder:
                 start_article["source_pmid"] = None
                 start_article["source_type"] = "起点論文"
 
+            # 起点論文の日本語要約がなければ生成（summary_threshold 以上のみ）
+            if not start_article.get("abstract_summary_ja"):
+                start_abstract = start_article.get("abstract", "")
+                start_title = start_article.get("title", "")
+                if not start_abstract:
+                    start_article["abstract_summary_ja"] = "アブストラクトが利用できません。"
+                elif score < summary_threshold:
+                    start_article["abstract_summary_ja"] = ""
+                else:
+                    try:
+                        start_article["abstract_summary_ja"] = self.evaluator.summarize_abstract(start_abstract, start_title)
+                        if project:
+                            project.add_article(start_article)
+                            project.save()
+                    except Exception as e:
+                        print(f"起点論文の要約生成エラー: {e}")
+                        start_article["abstract_summary_ja"] = "要約生成エラー"
+
             # キャッシュから取得したことを示すフラグ
             start_article["is_newly_evaluated"] = False
 
@@ -232,12 +291,27 @@ class ArticleFinder:
                     relevance_threshold
                 )
 
+                # 起点論文の日本語要約も生成（summary_threshold 以上のみ）
+                start_abstract = start_article.get("abstract", "")
+                start_title = start_article.get("title", "")
+                if not start_abstract:
+                    start_summary_ja = "アブストラクトが利用できません。"
+                elif evaluation["score"] < summary_threshold:
+                    start_summary_ja = ""
+                else:
+                    try:
+                        start_summary_ja = self.evaluator.summarize_abstract(start_abstract, start_title)
+                    except Exception as e:
+                        print(f"起点論文の要約生成エラー: {e}")
+                        start_summary_ja = "要約生成エラー"
+
                 article_id_prefix = "doi" if is_doi_start else "pmid"
                 start_article.update({
                     "article_id": f"{article_id_prefix}:{start_identifier}",  # 一意なIDを追加
                     "relevance_score": evaluation["score"],
                     "is_relevant": evaluation["is_relevant"],
                     "relevance_reasoning": evaluation["reasoning"],
+                    "abstract_summary_ja": start_summary_ja,
                     "depth": 0,
                     "source_pmid": None,
                     "source_type": "起点論文",
@@ -317,6 +391,7 @@ class ArticleFinder:
                             "max_depth": max_depth,
                             "max_articles": max_articles,
                             "relevance_threshold": relevance_threshold,
+                            "summary_threshold": summary_threshold,
                             "year_from": year_from,
                             "include_similar": include_similar,
                             "max_similar": max_similar,
@@ -363,6 +438,7 @@ class ArticleFinder:
                 collected_articles=collected_articles,
                 max_articles=max_articles,
                 relevance_threshold=relevance_threshold,
+                summary_threshold=summary_threshold,
                 year_from=year_from,
                 include_similar=include_similar,
                 max_similar=max_similar,
@@ -459,6 +535,7 @@ class ArticleFinder:
         collected_articles: Dict[str, Dict],
         max_articles: int,
         relevance_threshold: int,
+        summary_threshold: int,
         year_from: Optional[int],
         include_similar: bool,
         max_similar: int,
@@ -630,292 +707,96 @@ class ArticleFinder:
 
             stats["total_found"] += len(new_pmids_with_source)
 
-            # 各論文を取得・評価
+            # ----- 並列処理用にタスクを準備 -----
+            # 並列実行のため、project.save() の排他制御に使うロック
+            save_lock = threading.Lock()
+
+            # 投入可能なタスクをフィルタリング（max_articles を超えないように）
+            tasks: List[tuple] = []
             for identifier, source_type, openalex_doi, is_doi_only in new_pmids_with_source:
-                # PubMed収録論文のみを対象にする場合、DOIのみの論文はスキップ
                 if pubmed_only and is_doi_only:
                     print(f"  [DEBUG] PubMedのみモード: DOI {identifier} をスキップ")
                     continue
-
-                # 停止チェック
                 if should_stop_callback and should_stop_callback():
                     self._notify_progress(progress_callback, "停止リクエストを受け付けました")
                     break
-
-                if len(collected_articles) >= max_articles:
+                # 投入予定数を含めて上限チェック
+                if len(collected_articles) + len(tasks) >= max_articles:
                     break
 
-                # Article IDを生成
                 article_id = f"doi:{identifier}" if is_doi_only else f"pmid:{identifier}"
                 visited_ids.add(article_id)
+                tasks.append((identifier, source_type, openalex_doi, is_doi_only, article_id))
 
-                # 表示用の識別子
-                display_id = f"DOI:{identifier}" if is_doi_only else f"PMID:{identifier}"
+            # ----- 並列実行 -----
+            # Streamlit 実行時はワーカースレッドに ScriptRunContext を attach して
+            # UI コールバックや st.session_state アクセスを可能にする
+            streamlit_ctx = _get_streamlit_ctx()
+            worker_initializer = _make_worker_initializer(streamlit_ctx)
 
-                # プロジェクトにキャッシュがあるかチェック
-                if project and project.has_article_by_id(article_id):
-                    self._notify_progress(
-                        progress_callback,
-                        f"{display_id} はキャッシュから取得 ({len(collected_articles)}/{max_articles})"
-                    )
-                    article = project.get_article_by_id(article_id)
+            with ThreadPoolExecutor(
+                max_workers=PARALLEL_WORKERS,
+                initializer=worker_initializer
+            ) as executor:
+                futures = {
+                    executor.submit(
+                        self._process_one_paper,
+                        identifier=identifier,
+                        source_type=source_type,
+                        openalex_doi=openalex_doi,
+                        is_doi_only=is_doi_only,
+                        article_id=article_id,
+                        parent_article_id=parent_article_id,
+                        research_theme=research_theme,
+                        relevance_threshold=relevance_threshold,
+                        summary_threshold=summary_threshold,
+                        year_from=year_from,
+                        depth=depth,
+                        session_id=session_id,
+                        project=project,
+                        save_lock=save_lock,
+                        progress_callback=progress_callback,
+                        should_stop_callback=should_stop_callback,
+                        max_articles=max_articles,
+                        collected_count_ref=lambda: len(collected_articles),
+                    ): (identifier, source_type, openalex_doi, is_doi_only, article_id)
+                    for identifier, source_type, openalex_doi, is_doi_only, article_id in tasks
+                }
 
-                    # スコアはキャッシュから使用するが、is_relevantは現在の閾値で再計算
-                    score = article.get("relevance_score", 0)
-                    article["is_relevant"] = score >= relevance_threshold
-
-                    # DOI情報を補完（OpenAlexから取得したDOIがあり、キャッシュにDOIがない場合）
-                    if openalex_doi and not article.get("doi"):
-                        article["doi"] = openalex_doi
-
-                    # ソース情報を追加（キャッシュにない場合のみ）
-                    if "source_pmid" not in article:
-                        article["source_pmid"] = identifier
-                        article["source_type"] = source_type
-
-                    # mentioned_byを更新（重複時も親を追記）
-                    mentioned_by = article.get("mentioned_by", [])
-                    if not isinstance(mentioned_by, list):
-                        mentioned_by = []
-                    if parent_article_id not in mentioned_by:
-                        mentioned_by.append(parent_article_id)
-                        article["mentioned_by"] = mentioned_by
-                        # mentioned_by更新は必ず保存
-                        if project:
-                            project.add_article(article)
-                            project.save()
-                            print(f"    {display_id} の mentioned_by を更新: {parent_article_id} を追加")
-
-                    # 日本語要約がない場合は生成
-                    if "abstract_summary_ja" not in article or not article.get("abstract_summary_ja"):
-                        abstract = article.get("abstract", "")
-                        title = article.get("title", "")
-                        if abstract:
-                            try:
-                                abstract_summary_ja = self.evaluator.summarize_abstract(abstract, title)
-                                article["abstract_summary_ja"] = abstract_summary_ja
-                                # プロジェクトに保存
-                                if project:
-                                    project.add_article(article)
-                                    project.save()
-                            except Exception as e:
-                                print(f"要約生成エラー: {e}")
-                                article["abstract_summary_ja"] = "要約生成エラー"
-                        else:
-                            article["abstract_summary_ja"] = "アブストラクトが利用できません。"
-
-                    # Altmetricメトリクスがない場合は取得
-                    if "altmetric_data" not in article or article.get("altmetric_data") is None:
-                        altmetric_metrics = None
-                        try:
-                            doi = article.get("doi")
-                            pmid = article.get("pmid")
-
-                            if doi:
-                                altmetric_metrics = self.altmetric.get_metrics_by_doi(doi)
-                            elif pmid:
-                                altmetric_metrics = self.altmetric.get_metrics_by_pmid(pmid)
-
-                            if altmetric_metrics:
-                                article["altmetric_score"] = altmetric_metrics.get("score", 0)
-                                article["altmetric_data"] = altmetric_metrics
-                                print(f"    Altmetric Score取得(キャッシュ): {altmetric_metrics.get('score', 0)}")
-                                # プロジェクトに保存
-                                if project:
-                                    project.add_article(article)
-                                    project.save()
-                            else:
-                                article["altmetric_score"] = None
-                                article["altmetric_data"] = None
-                        except Exception as e:
-                            print(f"    Altmetric取得エラー(キャッシュ): {e}")
-                            article["altmetric_score"] = None
-                            article["altmetric_data"] = None
-
-                    # 被引用数がない場合は取得
-                    if "citation_count" not in article or article.get("citation_count") is None:
-                        citation_count = None
-                        try:
-                            doi = article.get("doi")
-                            pmid = article.get("pmid")
-
-                            if doi:
-                                citation_count = self.openalex.get_citation_count_by_doi(doi)
-                            elif pmid:
-                                citation_count = self.openalex.get_citation_count_by_pmid(pmid)
-
-                            if citation_count is not None:
-                                article["citation_count"] = citation_count
-                                print(f"    被引用数取得(キャッシュ): {citation_count}")
-                                # プロジェクトに保存
-                                if project:
-                                    project.add_article(article)
-                                    project.save()
-                            else:
-                                article["citation_count"] = 0
-                        except Exception as e:
-                            print(f"    被引用数取得エラー(キャッシュ): {e}")
-                            article["citation_count"] = 0
-
-                    # キャッシュから取得したことを示すフラグ
-                    article["is_newly_evaluated"] = False
-
-                    stats["total_skipped"] += 1
-                else:
-                    # キャッシュにない場合は取得・評価
-                    # 論文情報を取得
-                    if is_doi_only:
-                        # DOIのみの場合はOpenAlex APIから取得
-                        article = self.openalex.get_article_info_by_doi(identifier)
-                    else:
-                        # PMIDがある場合はPubMed APIから取得
-                        article = self.pubmed.get_article_info(identifier)
-
-                    if not article:
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                    except Exception as e:
+                        print(f"  [DEBUG] worker error: {e}")
                         continue
 
-                    # DOI情報を補完（OpenAlexから取得したDOIがあり、PubMedのDOIがない場合）
-                    if not is_doi_only and openalex_doi and not article.get("doi"):
-                        article["doi"] = openalex_doi
+                    if result is None or result.get("skip"):
+                        continue
 
-                    # 年フィルタ
-                    if year_from and article.get("pub_year"):
-                        if article["pub_year"] < year_from:
-                            continue
+                    article = result["article"]
+                    article_id = result["article_id"]
+                    identifier = result["identifier"]
+                    is_doi_only = result["is_doi_only"]
+                    is_cached = result["is_cached"]
 
-                    # 関連性を評価
-                    self._notify_progress(
-                        progress_callback,
-                        f"{display_id} を評価中 ({len(collected_articles)}/{max_articles})"
-                    )
+                    # 共有状態はメインスレッドで更新
+                    collected_articles[article_id] = article
 
-                    try:
-                        evaluation = self.evaluator.evaluate_relevance(
-                            research_theme,
-                            article,
-                            relevance_threshold
-                        )
-
-                        # アブストラクトの日本語要約を生成
-                        abstract = article.get("abstract", "")
-                        title = article.get("title", "")
-                        if abstract:
-                            abstract_summary_ja = self.evaluator.summarize_abstract(abstract, title)
-                        else:
-                            abstract_summary_ja = "アブストラクトが利用できません。"
-
-                        stats["total_evaluated"] += 1
-                        stats["session_article_count"] += 1  # セッションカウントを増やす
-
-                        # 論文情報を更新
-                        article.update({
-                            "article_id": article_id,  # 一意なIDを追加
-                            "relevance_score": evaluation["score"],
-                            "is_relevant": evaluation["is_relevant"],
-                            "relevance_reasoning": evaluation["reasoning"],
-                            "abstract_summary_ja": abstract_summary_ja,  # 日本語要約を追加
-                            "depth": depth,
-                            "source_pmid": identifier,
-                            "source_type": source_type,
-                            "mentioned_by": [parent_article_id],  # 親論文のIDを記録
-                            "search_session_id": session_id,  # セッションIDを記録
-                            "is_newly_evaluated": True  # 新規評価されたことを示すフラグ
-                        })
-
-                        # Altmetricメトリクスを取得
-                        altmetric_metrics = None
-                        try:
-                            doi = article.get("doi")
-                            pmid = article.get("pmid")
-
-                            if doi:
-                                altmetric_metrics = self.altmetric.get_metrics_by_doi(doi)
-                            elif pmid:
-                                altmetric_metrics = self.altmetric.get_metrics_by_pmid(pmid)
-
-                            if altmetric_metrics:
-                                article["altmetric_score"] = altmetric_metrics.get("score", 0)
-                                article["altmetric_data"] = altmetric_metrics
-                                print(f"    Altmetric Score取得: {altmetric_metrics.get('score', 0)}")
-                            else:
-                                article["altmetric_score"] = None
-                                article["altmetric_data"] = None
-                        except Exception as e:
-                            print(f"    Altmetric取得エラー: {e}")
-                            article["altmetric_score"] = None
-                            article["altmetric_data"] = None
-
-                        # OpenAlexから被引用数を取得
-                        citation_count = None
-                        try:
-                            doi = article.get("doi")
-                            pmid = article.get("pmid")
-
-                            if doi:
-                                citation_count = self.openalex.get_citation_count_by_doi(doi)
-                            elif pmid:
-                                citation_count = self.openalex.get_citation_count_by_pmid(pmid)
-
-                            if citation_count is not None:
-                                article["citation_count"] = citation_count
-                                print(f"    被引用数取得: {citation_count}")
-                            else:
-                                article["citation_count"] = 0
-                        except Exception as e:
-                            print(f"    被引用数取得エラー: {e}")
-                            article["citation_count"] = 0
-
-                        # プロジェクトに保存（リアルタイム保存）
-                        if project:
-                            project.add_article(article)
-                            project.save()  # 各論文評価後に即座に保存
-                            self._notify_progress(
-                                progress_callback,
-                                f"✅ {display_id} 評価完了・保存済み (スコア: {evaluation['score']}, 保存済み: {len(collected_articles) + 1}件)"
-                            )
-
-                    except Exception as e:
-                        # 評価エラー時も論文情報は保存（スコア0として）
-                        self._notify_progress(
-                            progress_callback,
-                            f"⚠️ {display_id} の評価中にエラー: {str(e)}"
-                        )
-                        article.update({
-                            "article_id": article_id,  # 一意なIDを追加
-                            "relevance_score": 0,
-                            "is_relevant": False,
-                            "relevance_reasoning": f"評価エラー: {str(e)}",
-                            "depth": depth,
-                            "source_pmid": identifier,
-                            "source_type": source_type,
-                            "mentioned_by": [parent_article_id],  # 親論文のIDを記録
-                            "search_session_id": session_id,  # セッションIDを記録
-                            "is_newly_evaluated": True  # エラーでも評価は試みたのでTrue
-                        })
-
-                        stats["session_article_count"] += 1  # エラー時もセッションカウントを増やす
-
-                        # エラー時も緊急保存
-                        if project:
-                            project.add_article(article)
-                            project.save()
-                            self._notify_progress(
-                                progress_callback,
-                                f"💾 エラーが発生しましたが、ここまでの進捗を保存しました (保存済み: {len(collected_articles) + 1}件)"
-                            )
-
-                collected_articles[article_id] = article
-
-                # 関連性が高い論文は次の階層で探索
-                if article.get("is_relevant"):
-                    stats["total_relevant"] += 1
-                    # PMID論文もDOI論文も次の階層に追加
-                    # ただし、DOI論文からはSimilar articlesは検索できない（Cited by/Referencesのみ）
-                    next_layer_pmids.append(identifier)
-                    if not is_doi_only:
-                        print(f"    PMID {identifier} を次の階層に追加 (スコア: {article.get('relevance_score')})")
+                    if is_cached:
+                        stats["total_skipped"] += 1
                     else:
-                        print(f"    DOI {identifier} を次の階層に追加 (スコア: {article.get('relevance_score')}) ※Similar articlesは除く")
+                        stats["total_evaluated"] += 1
+                        stats["session_article_count"] += 1
+
+                    if article.get("is_relevant"):
+                        stats["total_relevant"] += 1
+                        next_layer_pmids.append(identifier)
+                        score = article.get("relevance_score")
+                        if not is_doi_only:
+                            print(f"    PMID {identifier} を次の階層に追加 (スコア: {score})")
+                        else:
+                            print(f"    DOI {identifier} を次の階層に追加 (スコア: {score}) ※Similar articlesは除く")
+
 
         print(f"\n[DEBUG] _explore_layer 終了")
         print(f"  次の階層に追加する論文数: {len(next_layer_pmids)} 件")
@@ -924,13 +805,292 @@ class ArticleFinder:
 
         return next_layer_pmids
 
+    def _process_one_paper(
+        self,
+        identifier: str,
+        source_type: str,
+        openalex_doi: Optional[str],
+        is_doi_only: bool,
+        article_id: str,
+        parent_article_id: str,
+        research_theme: str,
+        relevance_threshold: int,
+        summary_threshold: int,
+        year_from: Optional[int],
+        depth: int,
+        session_id: str,
+        project: Optional[Project],
+        save_lock: threading.Lock,
+        progress_callback: Optional[Callable],
+        should_stop_callback: Optional[Callable],
+        max_articles: int,
+        collected_count_ref: Callable[[], int],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        1論文を処理するワーカー（並列実行可）。
+
+        - キャッシュ済みなら is_relevant の再計算 + 不足メタデータ補完
+        - キャッシュ未登録なら fetch → 評価 → 要約 → citation 取得
+
+        共有状態（collected_articles, visited_ids, stats, next_layer_pmids）は更新せず、
+        呼び出し側がメインスレッドで集約する前提。project への保存のみ save_lock 配下で実施。
+
+        Returns:
+            None or {
+                "skip": bool,
+                "article": Dict,
+                "article_id": str,
+                "identifier": str,
+                "is_doi_only": bool,
+                "is_cached": bool,
+            }
+        """
+        # 停止チェック（ワーカースレッドからの session_state アクセスは安全化済み）
+        if self._safe_should_stop(should_stop_callback):
+            return {"skip": True, "article_id": article_id, "identifier": identifier, "is_doi_only": is_doi_only, "is_cached": False, "article": None}
+
+        # 軽量な max_articles チェック（厳密ではないが暴走防止）
+        if collected_count_ref() >= max_articles:
+            return {"skip": True, "article_id": article_id, "identifier": identifier, "is_doi_only": is_doi_only, "is_cached": False, "article": None}
+
+        display_id = f"DOI:{identifier}" if is_doi_only else f"PMID:{identifier}"
+
+        # 現在の累計件数（並列なので値は概算）
+        progress_count = collected_count_ref() + 1
+
+        # キャッシュチェック
+        if project and project.has_article_by_id(article_id):
+            self._notify_progress(
+                progress_callback,
+                f"{display_id} はキャッシュから取得 ({progress_count}/{max_articles})"
+            )
+            article = project.get_article_by_id(article_id)
+
+            # スコアはキャッシュから使用するが、is_relevantは現在の閾値で再計算
+            score = article.get("relevance_score", 0)
+            article["is_relevant"] = score >= relevance_threshold
+
+            # DOI 情報を補完
+            if openalex_doi and not article.get("doi"):
+                article["doi"] = openalex_doi
+
+            # ソース情報を追加（キャッシュにない場合のみ）
+            if "source_pmid" not in article:
+                article["source_pmid"] = identifier
+                article["source_type"] = source_type
+
+            # mentioned_byを更新
+            mentioned_by = article.get("mentioned_by", [])
+            if not isinstance(mentioned_by, list):
+                mentioned_by = []
+            if parent_article_id not in mentioned_by:
+                mentioned_by.append(parent_article_id)
+                article["mentioned_by"] = mentioned_by
+                if project:
+                    with save_lock:
+                        project.add_article(article)
+                        project.save()
+                    print(f"    {display_id} の mentioned_by を更新: {parent_article_id} を追加")
+
+            # 日本語要約がない場合は生成（summary_threshold 以上）
+            if "abstract_summary_ja" not in article or not article.get("abstract_summary_ja"):
+                abstract = article.get("abstract", "")
+                title = article.get("title", "")
+                cached_score = article.get("relevance_score", 0)
+                if not abstract:
+                    article["abstract_summary_ja"] = "アブストラクトが利用できません。"
+                elif cached_score < summary_threshold:
+                    article["abstract_summary_ja"] = ""
+                else:
+                    try:
+                        abstract_summary_ja = self.evaluator.summarize_abstract(abstract, title)
+                        article["abstract_summary_ja"] = abstract_summary_ja
+                        if project:
+                            with save_lock:
+                                project.add_article(article)
+                                project.save()
+                    except Exception as e:
+                        print(f"要約生成エラー: {e}")
+                        article["abstract_summary_ja"] = "要約生成エラー"
+
+            # 被引用数がない場合は取得
+            if "citation_count" not in article or article.get("citation_count") is None:
+                citation_count = None
+                try:
+                    doi = article.get("doi")
+                    pmid = article.get("pmid")
+                    if doi:
+                        citation_count = self.openalex.get_citation_count_by_doi(doi)
+                    elif pmid:
+                        citation_count = self.openalex.get_citation_count_by_pmid(pmid)
+
+                    if citation_count is not None:
+                        article["citation_count"] = citation_count
+                        print(f"    被引用数取得(キャッシュ): {citation_count}")
+                        if project:
+                            with save_lock:
+                                project.add_article(article)
+                                project.save()
+                    else:
+                        article["citation_count"] = 0
+                except Exception as e:
+                    print(f"    被引用数取得エラー(キャッシュ): {e}")
+                    article["citation_count"] = 0
+
+            article["is_newly_evaluated"] = False
+            return {
+                "skip": False,
+                "article": article,
+                "article_id": article_id,
+                "identifier": identifier,
+                "is_doi_only": is_doi_only,
+                "is_cached": True,
+            }
+
+        # ----- 新規論文 -----
+        if is_doi_only:
+            article = self.openalex.get_article_info_by_doi(identifier)
+        else:
+            article = self.pubmed.get_article_info(identifier)
+
+        if not article:
+            return {"skip": True, "article_id": article_id, "identifier": identifier, "is_doi_only": is_doi_only, "is_cached": False, "article": None}
+
+        # DOI 情報を補完
+        if not is_doi_only and openalex_doi and not article.get("doi"):
+            article["doi"] = openalex_doi
+
+        # 年フィルタ
+        if year_from and article.get("pub_year"):
+            if article["pub_year"] < year_from:
+                return {"skip": True, "article_id": article_id, "identifier": identifier, "is_doi_only": is_doi_only, "is_cached": False, "article": None}
+
+        self._notify_progress(
+            progress_callback,
+            f"{display_id} を評価中 ({progress_count}/{max_articles})"
+        )
+
+        try:
+            evaluation = self.evaluator.evaluate_relevance(
+                research_theme,
+                article,
+                relevance_threshold
+            )
+
+            # 要約生成（summary_threshold 以上のみ）
+            abstract = article.get("abstract", "")
+            title = article.get("title", "")
+            if not abstract:
+                abstract_summary_ja = "アブストラクトが利用できません。"
+            elif evaluation["score"] < summary_threshold:
+                abstract_summary_ja = ""
+            else:
+                abstract_summary_ja = self.evaluator.summarize_abstract(abstract, title)
+
+            article.update({
+                "article_id": article_id,
+                "relevance_score": evaluation["score"],
+                "is_relevant": evaluation["is_relevant"],
+                "relevance_reasoning": evaluation["reasoning"],
+                "abstract_summary_ja": abstract_summary_ja,
+                "depth": depth,
+                "source_pmid": identifier,
+                "source_type": source_type,
+                "mentioned_by": [parent_article_id],
+                "search_session_id": session_id,
+                "is_newly_evaluated": True,
+            })
+
+            # 被引用数
+            try:
+                doi = article.get("doi")
+                pmid = article.get("pmid")
+                if doi:
+                    citation_count = self.openalex.get_citation_count_by_doi(doi)
+                elif pmid:
+                    citation_count = self.openalex.get_citation_count_by_pmid(pmid)
+                else:
+                    citation_count = None
+
+                if citation_count is not None:
+                    article["citation_count"] = citation_count
+                    print(f"    被引用数取得: {citation_count}")
+                else:
+                    article["citation_count"] = 0
+            except Exception as e:
+                print(f"    被引用数取得エラー: {e}")
+                article["citation_count"] = 0
+
+            if project:
+                with save_lock:
+                    project.add_article(article)
+                    project.save()
+                # 保存後の正確な累計件数を取得
+                saved_count = collected_count_ref() + 1
+                self._notify_progress(
+                    progress_callback,
+                    f"✅ {display_id} 評価完了・保存済み (スコア: {evaluation['score']}, 保存済み: {saved_count}/{max_articles}件)"
+                )
+
+        except Exception as e:
+            self._notify_progress(progress_callback, f"⚠️ {display_id} の評価中にエラー: {str(e)}")
+            article.update({
+                "article_id": article_id,
+                "relevance_score": 0,
+                "is_relevant": False,
+                "relevance_reasoning": f"評価エラー: {str(e)}",
+                "depth": depth,
+                "source_pmid": identifier,
+                "source_type": source_type,
+                "mentioned_by": [parent_article_id],
+                "search_session_id": session_id,
+                "is_newly_evaluated": True,
+            })
+            if project:
+                with save_lock:
+                    project.add_article(article)
+                    project.save()
+                saved_count = collected_count_ref() + 1
+                self._notify_progress(
+                    progress_callback,
+                    f"💾 エラーが発生しましたが、進捗を保存しました ({saved_count}/{max_articles}件)"
+                )
+
+        return {
+            "skip": False,
+            "article": article,
+            "article_id": article_id,
+            "identifier": identifier,
+            "is_doi_only": is_doi_only,
+            "is_cached": False,
+        }
+
     def _notify_progress(
         self,
         callback: Optional[Callable],
         message: str
     ):
-        """進捗を通知"""
+        """進捗を通知（ワーカースレッドからの呼び出しでも安全）。
+
+        Streamlit の UI コールバックは非メインスレッドから呼ぶと例外を投げる
+        ことがあるため、例外を握りつぶして stdout フォールバックする。
+        """
         if callback:
-            callback(message)
-        else:
-            print(message)
+            try:
+                callback(message)
+                return
+            except Exception:
+                # コールバック失敗時は stdout に出力（ワーカースレッドのケース）
+                pass
+        print(message)
+
+    @staticmethod
+    def _safe_should_stop(callback: Optional[Callable]) -> bool:
+        """should_stop_callback を安全に評価する（ワーカースレッドからの呼び出しでも安全）。"""
+        if not callback:
+            return False
+        try:
+            return bool(callback())
+        except Exception:
+            # Streamlit の session_state などへのアクセスが失敗した場合は停止扱いにしない
+            return False

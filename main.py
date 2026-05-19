@@ -13,7 +13,6 @@ from article_finder import ArticleFinder
 from project_manager import ProjectManager
 from gemini_evaluator import GeminiEvaluator
 from embedding_manager import EmbeddingManager
-from altmetric_api import AltmetricAPI
 from st_link_analysis import st_link_analysis, NodeStyle, EdgeStyle, Event
 import streamlit.components.v1 as components
 import plotly.express as px
@@ -26,6 +25,8 @@ SEARCH_MODE_PRESETS = {
         "config_max_articles_input": 200,
         "config_threshold_slider": 80,
         "config_threshold_input": 80,
+        "config_summary_threshold_slider": 60,
+        "config_summary_threshold_input": 60,
         "include_similar": True,
         "max_similar": 20,
         "include_cited_by": True,
@@ -43,6 +44,8 @@ SEARCH_MODE_PRESETS = {
         "config_max_articles_input": 500,
         "config_threshold_slider": 80,
         "config_threshold_input": 80,
+        "config_summary_threshold_slider": 60,
+        "config_summary_threshold_input": 60,
         "include_similar": True,
         "max_similar": 50,
         "include_cited_by": True,
@@ -60,6 +63,8 @@ SEARCH_MODE_PRESETS = {
         "config_max_articles_input": 1000,
         "config_threshold_slider": 80,
         "config_threshold_input": 80,
+        "config_summary_threshold_slider": 60,
+        "config_summary_threshold_input": 60,
         "include_similar": True,
         "max_similar": 100,
         "include_cited_by": True,
@@ -997,6 +1002,10 @@ def main():
             st.session_state.config_threshold_slider = 80
         if 'config_threshold_input' not in st.session_state:
             st.session_state.config_threshold_input = 80
+        if 'config_summary_threshold_slider' not in st.session_state:
+            st.session_state.config_summary_threshold_slider = 60
+        if 'config_summary_threshold_input' not in st.session_state:
+            st.session_state.config_summary_threshold_input = 60
 
         # 探索の深さ
         col_slider, col_input = st.columns([3, 1])
@@ -1047,11 +1056,11 @@ def main():
 
         max_articles = st.session_state.config_max_articles_slider
 
-        # 関連性スコア閾値
+        # 関連性スコア閾値（次階層への進出条件）
         col_slider, col_input = st.columns([3, 1])
         with col_slider:
             st.slider(
-                "関連性スコア閾値",
+                "次階層スコア閾値",
                 min_value=0,
                 max_value=100,
                 step=5,
@@ -1071,6 +1080,38 @@ def main():
             )
 
         relevance_threshold = st.session_state.config_threshold_slider
+
+        # 日本語要約のスコア閾値（要約生成条件）
+        col_slider2, col_input2 = st.columns([3, 1])
+        with col_slider2:
+            st.slider(
+                "要約生成スコア閾値",
+                min_value=0,
+                max_value=100,
+                step=5,
+                help="この値以上のスコアの論文のみ日本語要約を生成（API call 節約）",
+                key="config_summary_threshold_slider",
+                on_change=lambda: setattr(st.session_state, 'config_summary_threshold_input', st.session_state.config_summary_threshold_slider)
+            )
+        with col_input2:
+            st.number_input(
+                "要約閾値",
+                min_value=0,
+                max_value=100,
+                step=5,
+                label_visibility="collapsed",
+                key="config_summary_threshold_input",
+                on_change=lambda: setattr(st.session_state, 'config_summary_threshold_slider', st.session_state.config_summary_threshold_input)
+            )
+
+        summary_threshold = st.session_state.config_summary_threshold_slider
+
+        # 要約閾値 > 次階層閾値 の場合は警告（次階層なのに要約されない論文が出る）
+        if summary_threshold > relevance_threshold:
+            st.warning(
+                f"⚠️ 要約閾値 ({summary_threshold}) > 次階層閾値 ({relevance_threshold}) です。"
+                "次階層へ進む論文の一部に要約が生成されません。通常は要約閾値 ≤ 次階層閾値 を推奨します。"
+            )
 
         st.divider()
 
@@ -1314,6 +1355,7 @@ def main():
                 max_depth=max_depth,
                 max_articles=max_articles,
                 relevance_threshold=relevance_threshold,
+                summary_threshold=summary_threshold,
                 year_from=year_from,
                 include_similar=include_similar,
                 max_similar=max_similar,
@@ -1353,6 +1395,7 @@ def main():
                     "max_depth": max_depth,
                     "max_articles": max_articles,
                     "relevance_threshold": relevance_threshold,
+                    "summary_threshold": summary_threshold,
                     "year_from": year_from
                 }
                 project = pm.create_project(project_name, research_theme, settings)
@@ -1378,6 +1421,7 @@ def main():
             max_depth=max_depth,
             max_articles=max_articles,
             relevance_threshold=relevance_threshold,
+            summary_threshold=summary_threshold,
             year_from=year_from,
             include_similar=include_similar,
             max_similar=max_similar,
@@ -1405,6 +1449,7 @@ def display_project_articles(
     max_depth: int,
     max_articles: int,
     relevance_threshold: int,
+    summary_threshold: int,
     year_from: Optional[int],
     include_similar: bool,
     max_similar: int,
@@ -1882,15 +1927,21 @@ def display_project_articles(
         # 表示件数選択とボタンを横並びに
         col1, col2 = st.columns([2, 1])
         with col1:
-            top_n = st.slider(
-                "表示する論文数",
-                min_value=10,
-                max_value=min(200, len(filtered_articles)),
-                value=min(50, len(filtered_articles)),
-                step=10,
-                help="類似度の高い上位N件を表示します",
-                key="vector_search_top_n"
-            )
+            # 件数が少ない場合（10件未満）はスライダーを出さず全件表示
+            slider_max = min(200, len(filtered_articles))
+            if slider_max <= 10:
+                top_n = len(filtered_articles)
+                st.caption(f"表示する論文数: {top_n}件（フィルタ結果が少ないため全件表示）")
+            else:
+                top_n = st.slider(
+                    "表示する論文数",
+                    min_value=10,
+                    max_value=slider_max,
+                    value=min(50, slider_max),
+                    step=10,
+                    help="類似度の高い上位N件を表示します",
+                    key="vector_search_top_n"
+                )
 
         with col2:
             search_button = st.button(
@@ -2901,6 +2952,7 @@ def display_project_articles(
                         max_depth=max_depth,
                         max_articles=max_articles,
                         relevance_threshold=relevance_threshold,
+                        summary_threshold=summary_threshold,
                         year_from=year_from,
                         include_similar=include_similar,
                         max_similar=max_similar,
@@ -2960,6 +3012,7 @@ def run_search(
     max_depth: int,
     max_articles: int,
     relevance_threshold: int,
+    summary_threshold: int,
     year_from: int,
     include_similar: bool,
     max_similar: int,
@@ -3017,6 +3070,7 @@ def run_search(
                 max_depth=max_depth,
                 max_articles=max_articles,
                 relevance_threshold=relevance_threshold,
+                summary_threshold=summary_threshold,
                 year_from=year_from,
                 include_similar=include_similar,
                 max_similar=max_similar,
