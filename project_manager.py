@@ -232,32 +232,59 @@ class Project:
                 os.remove(tmp_path)
             raise
 
-    def has_article(self, pmid: str) -> bool:
+    def _candidate_article_ids(self, identifier: str) -> List[str]:
         """
-        論文が既に評価済みかチェック（PMIDベース、互換性のため残す）
+        識別子から検索候補のArticle IDを生成する。
 
         Args:
-            pmid: PubMed ID
+            identifier: Article ID、PMID、またはDOI
+
+        Returns:
+            候補IDのリスト
+        """
+        if not identifier:
+            return []
+
+        identifier = str(identifier).strip()
+        candidates = [identifier]
+
+        if identifier.startswith(("pmid:", "doi:")):
+            return candidates
+
+        if identifier.isdigit():
+            candidates.append(f"pmid:{identifier}")
+        else:
+            candidates.append(f"doi:{identifier}")
+
+        return candidates
+
+    def has_article(self, pmid: str) -> bool:
+        """
+        論文が既に評価済みかチェック（PMID/DOIベース、互換性のため残す）
+
+        Args:
+            pmid: PubMed ID、DOI、またはArticle ID
 
         Returns:
             評価済みの場合True
         """
-        article_id = f"pmid:{pmid}"
-        return article_id in self.articles or pmid in self.articles  # 旧形式も対応
+        return any(candidate in self.articles for candidate in self._candidate_article_ids(pmid))
 
     def get_article(self, pmid: str) -> Optional[Dict]:
         """
-        論文情報を取得（PMIDベース、互換性のため残す）
+        論文情報を取得（PMID/DOIベース、互換性のため残す）
 
         Args:
-            pmid: PubMed ID
+            pmid: PubMed ID、DOI、またはArticle ID
 
         Returns:
             論文情報（存在しない場合None）
         """
-        article_id = f"pmid:{pmid}"
-        # 新形式を優先、なければ旧形式を試す
-        return self.articles.get(article_id) or self.articles.get(pmid)
+        for candidate in reversed(self._candidate_article_ids(pmid)):
+            article = self.articles.get(candidate)
+            if article:
+                return article
+        return None
 
     def has_article_by_id(self, article_id: str) -> bool:
         """
@@ -373,15 +400,16 @@ class Project:
         論文を削除
 
         Args:
-            pmid: PubMed ID
+            pmid: PubMed ID、DOI、またはArticle ID
 
         Returns:
             削除に成功した場合True、論文が存在しない場合False
         """
-        if pmid in self.articles:
-            del self.articles[pmid]
-            self._update_stats()
-            return True
+        for candidate in reversed(self._candidate_article_ids(pmid)):
+            if candidate in self.articles:
+                del self.articles[candidate]
+                self._update_stats()
+                return True
         return False
 
     def _update_stats(self):

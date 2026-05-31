@@ -228,10 +228,12 @@ class ArticleFinder:
         identifier_type = "DOI" if is_doi_start else "PMID"
         self._notify_progress(progress_callback, f"起点論文を処理中 ({identifier_type}: {start_identifier})")
 
+        start_article_id = f"{'doi' if is_doi_start else 'pmid'}:{start_identifier}"
+
         # プロジェクトにキャッシュがあるかチェック
-        if project and project.has_article(start_identifier):
+        if project and (project.has_article_by_id(start_article_id) or project.has_article(start_identifier)):
             self._notify_progress(progress_callback, f"起点論文はキャッシュから取得")
-            start_article = project.get_article(start_identifier)
+            start_article = project.get_article_by_id(start_article_id) or project.get_article(start_identifier)
 
             # スコアはキャッシュから使用するが、is_relevantは現在の閾値で再計算
             score = start_article.get("relevance_score", 0)
@@ -239,8 +241,7 @@ class ArticleFinder:
 
             # Article IDを追加（キャッシュにない場合のみ）
             if "article_id" not in start_article:
-                article_id_prefix = "doi" if is_doi_start else "pmid"
-                start_article["article_id"] = f"{article_id_prefix}:{start_identifier}"
+                start_article["article_id"] = start_article_id
 
             # ソース情報を追加（キャッシュにない場合のみ）
             if "source_pmid" not in start_article:
@@ -305,9 +306,8 @@ class ArticleFinder:
                         print(f"起点論文の要約生成エラー: {e}")
                         start_summary_ja = "要約生成エラー"
 
-                article_id_prefix = "doi" if is_doi_start else "pmid"
                 start_article.update({
-                    "article_id": f"{article_id_prefix}:{start_identifier}",  # 一意なIDを追加
+                    "article_id": start_article_id,  # 一意なIDを追加
                     "relevance_score": evaluation["score"],
                     "is_relevant": evaluation["is_relevant"],
                     "relevance_reasoning": evaluation["reasoning"],
@@ -343,7 +343,6 @@ class ArticleFinder:
                     )
                 raise ValueError(f"起点論文の評価中にエラーが発生しました: {str(e)}")
 
-        start_article_id = f"pmid:{start_pmid}"
         collected_articles[start_article_id] = start_article
         visited_ids.add(start_article_id)
         stats["total_found"] = 1
@@ -352,12 +351,12 @@ class ArticleFinder:
 
         # 深さ優先で探索
         # 起点論文は評価スコアに関わらず、必ず次の階層へ進む
-        current_layer = [start_pmid]
+        current_layer = [start_identifier]
 
         # デバッグ情報をターミナルに出力
         print(f"\n{'='*60}")
         print(f"[DEBUG] 探索開始")
-        print(f"  起点PMID: {start_pmid}")
+        print(f"  起点{identifier_type}: {start_identifier}")
         print(f"  max_depth: {max_depth}")
         print(f"  max_articles: {max_articles}")
         print(f"  include_similar: {include_similar}, max_similar: {max_similar}")
@@ -380,6 +379,7 @@ class ArticleFinder:
                 if project:
                     search_state = {
                         "start_pmid": start_pmid,
+                        "start_identifier": start_identifier,
                         "research_theme": research_theme,
                         "session_id": session_id,
                         "current_layer": current_layer,
