@@ -42,6 +42,39 @@ args = ["-y", "chrome-devtools-mcp@latest", "--browser-url=http://127.0.0.1:9222
 
 設定変更後は Codex を再起動する。反映されていれば、Agent が `list_pages` したときに、MCP専用Chromeで開いているタブが見える。
 
+## Claude Code MCP設定
+
+Claude Code でも同じことができる（2026-05-31 に Wiley・ScienceDirect で動作確認済み）。プロジェクト単位で管理するため、リポジトリ直下に `.mcp.json` を置く。
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "chrome-devtools-mcp@latest",
+        "--browser-url=http://127.0.0.1:9222"
+      ]
+    }
+  }
+}
+```
+
+注意点:
+
+- Chrome DevTools MCP を**プラグイン**として入れている場合、プラグインの起動引数には `--browser-url` が付かず、MCP専用Chrome（9222）ではなく自前の使い捨て Chrome を起動してしまう。上記 `.mcp.json` を置いたうえで、プロジェクトの `.claude/settings.json` でプラグインをこのプロジェクトのみ無効化すると、ツールの二重起動を防げる。
+
+  ```json
+  {
+    "enabledPlugins": {
+      "chrome-devtools-mcp@chrome-devtools-plugins": false
+    }
+  }
+  ```
+
+- 設定変更後は Claude Code を再起動する。`list_pages` で MCP専用Chromeのタブ（`localhost:8502` など）が見えれば接続成功。`about:blank` しか見えない場合は 9222 に繋がっていない。
+- 保存は、PDF実体URLが開いているタブで `fetch(location.href, {credentials:"include"})` → Blob → `<a download>` クリックで発火させると、MCP専用Chromeの既定ダウンロード先（通常 `~/Downloads`）に保存される。保存後は `file` でPDFか確認する。
+
 ## 通常Chromeとの併用
 
 macOS の `open -a "Google Chrome"` は、既に起動中のChromeプロセスに吸われることがある。通常プロファイルとMCP専用プロファイルを併用する場合は、次の順番が安定する。
@@ -95,6 +128,55 @@ file ~/Downloads/target.pdf
 ```
 
 PDFではなくHTMLが保存された場合は削除し、PDF実体URLまたは別のPDFリンクで再試行する。
+
+### ファイル名の規則
+
+後から内容を見分けやすいよう、次の規則で保存する。
+
+```text
+{リスト番号}_{筆頭著者の姓}_{出版年}_{内容キーワード}.pdf
+```
+
+- リスト番号: ArticleFinder の論文一覧での `[N]`
+- 筆頭著者の姓: `authors` 先頭の姓（スペースは詰める。`Roy Moulik` → `RoyMoulik`）
+- 出版年: `pub_year`
+- 内容キーワード: タイトルを要約した英小文字スネークケース 3〜5語
+- 記号・空白・日本語は使わず、英数字とアンダースコアのみ
+
+例:
+
+```text
+10_RoyMoulik_2018_folate_deficiency_ALL_maintenance.pdf
+11_Withey_2025_ferritin_folate_childhood_cancer.pdf
+```
+
+## 取得結果の記録
+
+どの論文を取得済み（または取得失敗・取得不可）かを後から追えるよう、取得を試みた論文は ArticleFinder の「📝 メモ・コメント」欄に結果を残す。
+
+記録は、ブラウザでメモ欄を操作するのではなく **`projects/{project}/articles.json` の `comment` フィールドを直接編集する**のが確実かつ低コスト。理由:
+
+- ArticleFinder（Streamlit）は rerun のたびに articles.json をディスクから読み直す。したがって外部からの編集は次の操作/リロードでメモ欄に反映され、アプリ側のメモ保存で上書きされることもない。
+- Streamlit の text_area + 保存ボタン経由は、論文件数が増えると挙動が不安定になりがちで、巨大なページスナップショットでトークン消費も大きい。
+
+`articles.json` はトップレベルが `pmid:<PMID>` / `doi:<DOI>` をキーにした辞書で、各論文に `comment` 欄がある。書き込みは `os.replace` でアトミックに行い、既存コメントは保持して末尾に追記する。
+
+Claude Code では同梱スクリプトを使う:
+
+```bash
+python3 .claude/skills/fetch-paper-pdf/record_status.py \
+  --project <プロジェクト名> --id <PMID/DOI> --status "📄 PDF取得済み (YYYY-MM-DD)"
+```
+
+ステータス文言の例:
+
+```text
+📄 PDF取得済み (2026-05-31)
+⚠️ PDF取得失敗：人間認証が必要 (2026-05-31)
+🚫 PDF取得不可：機関アクセス権なし (2026-05-31)
+```
+
+メモ欄への反映には、ArticleFinder でプロジェクトを選び直す（リロードする）必要がある。
 
 ## 出版社別メモ
 

@@ -32,6 +32,9 @@ ENV/
 # User Settings
 user_settings.json
 
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json
+
 # IDE
 .vscode/
 .idea/
