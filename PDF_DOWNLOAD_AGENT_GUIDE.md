@@ -9,6 +9,16 @@ ArticleFinder の機関リンクから、Codex などの agentic AI が Chrome D
 - Agent は、表示済みページの通常操作、PDFリンク探索、取得可能なPDFの保存だけを行う。
 - Paywall、CAPTCHA、DRM、アクセス制限の回避は行わない。
 
+## アクセス礼儀（レート）
+
+機械的・系統的ダウンロードと疑われると、機関単位でブロックされる恐れがある（特に Elsevier/ScienceDirect・Wiley/Atypon）。バーストを避け、人間的なペースで取得する。
+
+- 1件取得するごとに待機を入れる（ランダム化、目安 5〜15秒）。短時間に多数を連続取得しない。
+- 1スクリプトで多数を高速 fetch しない（高速一括バーストは禁止）。origin が複数DL許可済みでも1件ずつ待機する。
+- 可能なら navigate / クリックを挟んだ人間的ペースを優先する。
+- ScienceDirect・Wiley など検知が厳しい先は間隔を広めにとる。
+- 日次上限や複数日分散は必須としない（手動利用と同程度の量なら問題になりにくい）。ただし明らかに過大な一括取得は避ける。
+
 ## 推奨構成
 
 通常Chromeとは別に、MCP専用Chromeプロファイルを用意する。
@@ -180,15 +190,19 @@ python3 .claude/skills/fetch-paper-pdf/record_status.py \
 
 ## 出版社別メモ
 
-### Wiley
+### Wiley / Atypon系（ASCO・ACS journals・JPEN なども同じ）
 
-多くの場合、本文ページに `PDF` または `Download PDF` がある。`/doi/pdfdirect/{doi}` がPDF本体になることが多い。
+`/doi/pdfdirect/{doi}?download=true` がPDF本体。記事ページと**同一オリジン**で `fetch(credentials:"include")` すれば取れる。ASCO（`10.1200`）、ACS journals、JPEN（現在Wileyホスト）も同じ Atypon 基盤で同手順。
 
 例:
 
 ```text
 https://onlinelibrary-wiley-com.<proxy>/doi/pdfdirect/10.1002/pbc.29104
 ```
+
+`<>()` を含む古い特殊文字DOI（例 `10.1002/1097-0142(...)...`）は、DOIを手で組まず `location.pathname.replace("/doi/","/doi/pdfdirect/")+"?download=true"` で構築する。
+
+同一originで複数DLが**ブロック**される場合（新規origin）は、navigate/reload で1件ずつ取得する（1ページ読み込みにつき1DL許可）。
 
 ### Springer / Nature
 
@@ -222,6 +236,52 @@ https://www-tandfonline-com.<proxy>/doi/pdf/{doi}?download=true
 5. `pdf.sciencedirectassets.com/.../main.pdf?...` のPDF実体URLまで遷移したら保存する。
 
 ScienceDirectでは、`fetch()` で `pdfft` URLを直接取得するとHTMLが返ることがある。通常クリックでPDF実体URLまで進んでから保存する方が安定する。
+
+Claude Code（2026-06 実証）では、クリックの代わりに記事ページの `citation_pdf_url`(=pdfft) へ **`location.href=` でJSページ遷移**させると、`crasolve` チャレンジが**自動通過**して `pdf.sciencedirectassets.com/.../main.pdf` に着いた（人間確認は不要だった）。到達後そのタブで `fetch(location.href)` して保存する。`linkinghub-elsevier-com` で止まる場合は `www-sciencedirect-com/.../pii/{PII}` に直接 navigate する。旧誌（AJCN 等）が SD に載っているケースも同手順。
+
+### MDPI
+
+`citation_pdf_url`（`{article}/pdf?version=..`）へ **navigate** すると添付DL（`ERR_ABORTED`）が発火する。`~/Downloads` の既定名ファイル（例 `medicina-59-01008-v2.pdf`）を命名規則にリネームする。
+
+### LWW（journals.lww.com）
+
+PDF URL への GET 遷移は記事ページに戻されてしまう。記事ページHTMLから `_layouts/15/oaks.journals/downloadpdf.aspx?...&an={AN}` のURL（または `an=` 値）を抽出し、**記事ページ上で `window.open(url)`** するとポップアップ扱いで添付DLが発火する。
+
+### OA誌（PLOS / Dove / ecancer / APJCP など）
+
+- PLOS: `${origin}/{journal}/article/file?id={doi}&type=printable`
+- Dove Press: 記事ページの `/article/download/{id}` アンカー
+- ecancer: 記事URL + `/pdf`
+- その他OA: `citation_pdf_url` かページ内 `.pdf` アンカーを `fetch`
+
+### 取得不可（深追いしない）
+
+PDF URL が記事ページ（HTML）にリダイレクトされる／`fetch` がHTMLを返し続けるのは**機関アクセス無し**。メール登録やアカウントが必須（例: Cureus）、T&F等で機関契約が無い場合も不可。`🚫 PDF取得不可：理由` で記録して次へ進む。
+
+### DOIなしの論文
+
+ArticleFinder で DOI が空でも諦めない。**ArticleFinder が取りこぼしているだけ**で、PubMed 本体には DOI があることが多い。
+
+1. PubMed の ArticleId を確認（E-utilities、APIなので安全）：
+
+   ```bash
+   curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={PMID}&rettype=xml" \
+     | grep -oE '<ArticleId IdType="[^"]+">[^<]+</ArticleId>'
+   ```
+
+   DOI が見つかれば出版社別メモに従って取得。見つけた DOI は articles.json の `doi` 欄に補完しておく（HTML実体参照 `&lt; &gt;` は `< >` にデコード）。
+
+2. PMC（無料全文）の有無：
+
+   ```bash
+   curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?dbfrom=pubmed&db=pmc&id={PMID}&retmode=json"
+   ```
+
+   あれば Europe PMC 直リン `https://europepmc.org/articles/PMC{id}?pdf=render` などから取得。
+
+3. OA誌（SciELO `10.1590` 等）は機関認証不要。記事ページの `?format=pdf` / `citation_pdf_url` を**プロキシ経由せず直接** `fetch`。
+
+4. DOIもPMCも本文経路も無い（出版社内部IDのみ等）場合は `🚫 PDF取得不可：DOI/PMCなし・経路無し` で記録する。
 
 ## トラブルシュート
 

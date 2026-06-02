@@ -19,6 +19,17 @@ ArticleFinder（`http://localhost:8502`）の論文から、機関認証を通�
 - 機関認証・2FA・Cloudflare・ScienceDirect の人間確認は**ユーザー本人**が通す。Agent は通さない。
 - Paywall・CAPTCHA・DRM・アクセス制限の**回避はしない**。表示済みページの通常操作と、取得可能な PDF の保存だけを行う。
 
+## アクセス礼儀（レート・重要）
+
+機械的・系統的ダウンロードと疑われると、機関単位でブロックされる恐れがある（特に Elsevier/ScienceDirect・Wiley/Atypon）。**バーストを避け、人間的なペースで取得する**こと。
+
+- **1件取得するごとに待機を入れる**（ランダム化、目安 5〜15秒）。短時間に多数を連続取得しない。
+- **1スクリプトで多数を高速 fetch しない**（旧版の「Wiley一括15件を0.7秒間隔」のようなバーストは禁止）。たとえ origin が複数DL許可済みでも、1件ずつ待機して取得する。
+- 可能なら **navigate / クリックを挟んだ人間的ペース**を優先（fetch連打にしない）。
+- ScienceDirect・Wiley など検知が厳しい先では間隔を広めにとる。
+- 日次上限や複数日分散は必須としない（手動利用と同程度の量なら問題になりにくい、というユーザー方針）。ただし**明らかに過大な一括取得は避ける**。
+- 取得後に図書館/機関からアクセス制限・警告が来ていないか、ユーザーが気づける形で進める。
+
 ## 省トークン運用（重要）
 
 ブラウザ系ツールの**戻り値**がトークンの主因。確実性を保ったまま、以下を徹底する。
@@ -168,12 +179,54 @@ python3 .claude/skills/fetch-paper-pdf/record_status.py \
 
 ## 出版社別プレイブック
 
-| 出版社 | PDF実体への到達方法 |
+DOIプロキシ（`https://doi-org.<proxy>/{doi}`）へ navigate すると、出版社のプロキシ origin の記事ページに着く。そこから下記で PDF 実体を取得。**navigate ごとに複数DL制限がリセット**される点を利用する。
+
+| 出版社 | PDF実体への到達方法（2026-06 実証済み） |
 |--------|--------------------|
-| **Wiley** | 論文ページの `Download PDF`、または `/doi/pdfdirect/{doi}?download=true` に直接遷移すると PDF 本体。`fetch` でそのまま取得できることが多い。 |
-| **ScienceDirect / Elsevier** | 一番失敗しやすい。`pdfft` URL を**直接 fetch しない**（HTML が返る）。本文ページの **`View PDF` を通常クリック** → `pdf.sciencedirectassets.com/.../main.pdf` の実体URLまで遷移してから保存する。 |
-| **Springer / Nature** | `Download PDF` または `citation_pdf_url`。`link.springer.com/content/pdf/{doi}.pdf` / `www.nature.com/articles/{id}.pdf`。 |
-| **Taylor & Francis** | `/doi/epdf/...` は HTML ビューア。PDF 本体は `/doi/pdf/{doi}?download=true`。 |
+| **Atypon系（Wiley / ASCO / ACS journals / JPEN等）** | 記事ページと**同一オリジン**で `${location.origin}/doi/pdfdirect/{doi}?download=true` を `fetch`。`<>()` を含む特殊文字DOIは `location.pathname.replace("/doi/","/doi/pdfdirect/")+"?download=true"` で構築（DOIを手で組まない）。複数件でも**1件ずつ・間に待機**（アクセス礼儀参照）。1スクリプトでの高速一括 fetch はしない。 |
+| **ScienceDirect / Elsevier** | 最難。`pdfft` を**直接 fetch しない**（HTMLが返る）。記事ページの `citation_pdf_url`(=pdfft) へ **`location.href=` でJSページ遷移** → `crasolve` チャレンジが**自動通過**し `pdf.sciencedirectassets.com/.../main.pdf` に着く → そのタブで `fetch(location.href)` して保存。`linkinghub-elsevier-com` 経由で止まったら `www-sciencedirect-com/.../pii/{PII}` に直接 navigate。旧誌（AJCN等）がSDに載っている場合も同様。 |
+| **Springer / BMC** | `${springer-proxy}/content/pdf/{doi}.pdf` を `fetch`（`10.1007` / `10.1186`）。新規originは複数DLブロックされるので **reload→1件** で回す。 |
+| **MDPI** | `citation_pdf_url`（`{article}/pdf?version=..`）へ **navigate** すると添付DL（`ERR_ABORTED`）が発火 → `~/Downloads` の既定名ファイルを命名規則にリネーム。 |
+| **LWW (journals.lww.com)** | GET遷移は記事へ戻される。記事ページHTMLから `downloadpdf.aspx?...&an={AN}` URL（または `an=` 値）を抽出し、記事ページ上で **`window.open(url)`** → ポップアップ扱いで添付DL発火 → リネーム。 |
+| **PLOS** | `${origin}/{journal}/article/file?id={doi}&type=printable` を `fetch`（OA）。 |
+| **Dove Press** | 記事ページの `/article/download/{id}` アンカーを `fetch`（OA）。 |
+| **ecancer** | 記事URL + `/pdf` を `fetch`（OA）。 |
+| **APJCP (waocp) 等のOA誌** | `citation_pdf_url` かページ内の `.pdf` アンカーを `fetch`。 |
+| **Taylor & Francis** | `/doi/pdf/{doi}?download=true`。ただし機関契約が無いと不可（その場合は `🚫 取得不可`）。 |
+
+### 汎用フォールバック（出版社不明時）
+
+記事ページで evaluate_script を1回：`meta[name="citation_pdf_url"]` → 同一オリジンの `/doi/pdfdirect/{doi}?download=true` → ページ内の `.pdf`/「Download PDF」アンカー、の順に `fetch` を試す。`content-type` が `application/pdf` かつ `size>10000` を成功条件にする（スナップショット不要）。
+
+### 取得不可と判断する条件
+
+PDF URLが記事ページ（HTML）にリダイレクトされる／`fetch` がHTMLを返し続ける場合は**機関アクセス無し**。メール登録やアカウント必須（例: Cureus）も不可。これらは `🚫 PDF取得不可：理由` で記録し、深追いしない。
+
+## DOIなしの論文
+
+ArticleFinder で `doi` が空でも、諦める前に PubMed 本体を確認する。**ArticleFinder が DOI を取りこぼしているだけ**のことが多い（今回 6件中 5件に PubMed 側 DOI が存在した）。
+
+1. **PubMed の ArticleId を確認**（DOI や PMC が無いか）。E-utilities は API なので低コスト：
+
+   ```bash
+   curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={PMID}&rettype=xml" \
+     | grep -oE '<ArticleId IdType="[^"]+">[^<]+</ArticleId>' | sed 's/<[^>]*>/ /g'
+   ```
+
+   - **DOI が見つかれば** → 出版社別プレイブックで取得。見つけた DOI は articles.json の `doi` 欄に補完しておくと今後のリンク生成に効く（`os.replace` でアトミックに、既存DOIは上書きしない）。
+   - DOI の HTML実体参照（`&lt; &gt;`）は `< >` にデコードして保存する。
+
+2. **PMC（無料全文）を確認**：
+
+   ```bash
+   curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/elink.fcgi?dbfrom=pubmed&db=pmc&id={PMID}&retmode=json"
+   ```
+
+   `pubmed_pmc` リンクがあれば、Europe PMC の直リン（`https://europepmc.org/articles/PMC{id}?pdf=render`）か PMC ページから取得。
+
+3. **OA誌は機関認証不要**。SciELO（`10.1590`）等は記事ページの `?format=pdf` / `citation_pdf_url` を**プロキシを経由せず直接** `fetch` できる。
+
+4. DOIもPMCも無く、本文サイトにも到達手段が無い（例: `AT9847` のような出版社内部IDのみ）場合は `🚫 PDF取得不可：DOI/PMCなし・経路無し` で記録する。
 
 ## 後始末
 
