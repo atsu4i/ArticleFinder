@@ -35,6 +35,9 @@ user_settings.json
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 
+# Working input (ArticleFinder のエクスポート等の一時ファイル)
+inbox/
+
 # IDE
 .vscode/
 .idea/
