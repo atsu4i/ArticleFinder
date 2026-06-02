@@ -239,6 +239,12 @@ ScienceDirectでは、`fetch()` で `pdfft` URLを直接取得するとHTMLが�
 
 Claude Code（2026-06 実証）では、クリックの代わりに記事ページの `citation_pdf_url`(=pdfft) へ **`location.href=` でJSページ遷移**させると、`crasolve` チャレンジが**自動通過**して `pdf.sciencedirectassets.com/.../main.pdf` に着いた（人間確認は不要だった）。到達後そのタブで `fetch(location.href)` して保存する。`linkinghub-elsevier-com` で止まる場合は `www-sciencedirect-com/.../pii/{PII}` に直接 navigate する。旧誌（AJCN 等）が SD に載っているケースも同手順。
 
+**重要（取り違え注意）:** 記事ページの参考文献・関連論文セクションにも `pdfft`/「View PDF」リンクが多数ある。`citation_pdf_url` が無い古い論文で「最初の pdfft アンカー」を拾うと**引用文献の別PDFを取得してしまう**（実害発生済み）。必ず**記事自身の pii（`/pii/{PII}`）に一致する** View PDF を選ぶ。`citation_pdf_url` が無くても、本文の View PDF（pii一致）をクリック/遷移すれば取得できる。
+
+### 同一性の検証（全出版社で必須）
+
+`content-type: application/pdf` ＋サイズだけでは**別論文の有効なPDF**を取り違えても通る。取得元URLに対象の識別子（SD=`pii`、他=DOI）が含まれるかを fetch 前に確認し、取得後も `pdfinfo`/`mdls` で埋め込みタイトル・DOI・PIIが対象と整合するか確認する。疑わしければ破棄して取り直す。
+
 ### MDPI
 
 `citation_pdf_url`（`{article}/pdf?version=..`）へ **navigate** すると添付DL（`ERR_ABORTED`）が発火する。`~/Downloads` の既定名ファイル（例 `medicina-59-01008-v2.pdf`）を命名規則にリネームする。

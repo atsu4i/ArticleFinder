@@ -150,6 +150,11 @@ file ~/Downloads/<ファイル名>.pdf
 
 `PDF document` なら成功。`HTML document` なら削除し、出版社別プレイブックに従って別ルートで再試行する。
 
+**⚠️ 同一性の検証（必須）。** `content-type: application/pdf` ＋サイズだけでは**別論文の有効なPDF**を取り違えても通ってしまう（実害発生済み: 引用文献のPDFを誤取得）。次のいずれかで取得対象と一致するか確認する：
+
+- 取得元URLに**対象の識別子が含まれるか**（SDなら asset URL に記事の `pii`、出版社なら DOI）。fetch 前に必ずチェックする。
+- 取得後に PDF の埋め込みメタを確認：`pdfinfo file.pdf | grep -iE 'Title|Subject'` や `mdls -name kMDItemTitle file.pdf` が**対象のタイトル/DOI/PIIと整合**するか。少しでも疑わしければ破棄して取り直す。
+
 ## 4. 取得結果を articles.json に記録（毎回）
 
 取得を試みた論文は、成否にかかわらず結果を `comment` 欄に残す。後からユーザーが取得状況を追えるようにするため。
@@ -184,7 +189,7 @@ DOIプロキシ（`https://doi-org.<proxy>/{doi}`）へ navigate すると、出
 | 出版社 | PDF実体への到達方法（2026-06 実証済み） |
 |--------|--------------------|
 | **Atypon系（Wiley / ASCO / ACS journals / JPEN等）** | 記事ページと**同一オリジン**で `${location.origin}/doi/pdfdirect/{doi}?download=true` を `fetch`。`<>()` を含む特殊文字DOIは `location.pathname.replace("/doi/","/doi/pdfdirect/")+"?download=true"` で構築（DOIを手で組まない）。複数件でも**1件ずつ・間に待機**（アクセス礼儀参照）。1スクリプトでの高速一括 fetch はしない。 |
-| **ScienceDirect / Elsevier** | 最難。`pdfft` を**直接 fetch しない**（HTMLが返る）。記事ページの `citation_pdf_url`(=pdfft) へ **`location.href=` でJSページ遷移** → `crasolve` チャレンジが**自動通過**し `pdf.sciencedirectassets.com/.../main.pdf` に着く → そのタブで `fetch(location.href)` して保存。`linkinghub-elsevier-com` 経由で止まったら `www-sciencedirect-com/.../pii/{PII}` に直接 navigate。旧誌（AJCN等）がSDに載っている場合も同様。 |
+| **ScienceDirect / Elsevier** | 最難。`pdfft` を**直接 fetch しない**（HTMLが返る）。記事ページの `citation_pdf_url`(=pdfft) へ **`location.href=` でJSページ遷移** → `crasolve` チャレンジが**自動通過**し `pdf.sciencedirectassets.com/.../main.pdf` に着く → そのタブで `fetch(location.href)` して保存。`linkinghub-elsevier-com` 経由で止まったら `www-sciencedirect-com/.../pii/{PII}` に直接 navigate。旧誌（AJCN等）がSDに載っている場合も同様。**⚠️ 重要:** 記事ページの**参考文献・関連論文セクションにも `pdfft`/「View PDF」リンクが多数ある**。`citation_pdf_url` が無い古い論文で「最初に見つかった pdfft アンカー」を拾うと**引用文献の別PDFを取得してしまう**（実害発生済み）。必ず **記事自身の pii（`location.pathname` の `/pii/{PII}`）に一致する** View PDF を選ぶこと。 |
 | **Springer / BMC** | `${springer-proxy}/content/pdf/{doi}.pdf` を `fetch`（`10.1007` / `10.1186`）。新規originは複数DLブロックされるので **reload→1件** で回す。 |
 | **MDPI** | `citation_pdf_url`（`{article}/pdf?version=..`）へ **navigate** すると添付DL（`ERR_ABORTED`）が発火 → `~/Downloads` の既定名ファイルを命名規則にリネーム。 |
 | **LWW (journals.lww.com)** | GET遷移は記事へ戻される。記事ページHTMLから `downloadpdf.aspx?...&an={AN}` URL（または `an=` 値）を抽出し、記事ページ上で **`window.open(url)`** → ポップアップ扱いで添付DL発火 → リネーム。 |
